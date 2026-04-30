@@ -1,0 +1,11 @@
+{
+  "name": "the-plan",
+  "version": "0.1.0",
+  "description": "Long-horizon plan-developing infrastructure for civilizational goals. Cron-driven Claude Code agent that thinks, refines, and queues — but does not act without approval.",
+  "author": {
+    "name": "Joel Thornton",
+    "email": "joelpt@gmail.com"
+  },
+  "homepage": "local-only-for-now",
+  "keywords": ["planning", "long-horizon", "agentic", "self-marketplace"]
+}

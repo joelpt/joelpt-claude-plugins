@@ -1,0 +1,18 @@
+{
+  "name": "clickup",
+  "description": "ClickUp project management integration. Create and manage tasks, search projects, update assignments, track progress, and integrate your development workflow with ClickUp.",
+  "author": {
+    "name": "Joel Thor"
+  },
+  "mcpServers": {
+    "clickup": {
+      "command": "npx",
+      "args": ["-y", "@taazkareem/clickup-mcp-server"],
+      "env": {
+        "CLICKUP_API_KEY": "${PLUGIN_ENV_CLICKUP_API_KEY}",
+        "CLICKUP_TEAM_ID": "${PLUGIN_ENV_CLICKUP_TEAM_ID}",
+        "CLICKUP_MCP_LICENSE_KEY": "${PLUGIN_ENV_CLICKUP_MCP_LICENSE_KEY}"
+      }
+    }
+  }
+}

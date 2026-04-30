@@ -1,0 +1,40 @@
+{
+  "name": "joelpt-claude-plugins",
+  "owner": {
+    "name": "Joel Thornton",
+    "email": "joelpt@gmail.com"
+  },
+  "description": "Joel's private monorepo of Claude Code plugins.",
+  "plugins": [
+    {
+      "name": "search-rag",
+      "source": "./plugins/search-rag",
+      "description": "Local-first LanceDB RAG over project documentation. Indexes files matched by .search-rag.json globs and serves semantic search to Claude."
+    },
+    {
+      "name": "tao",
+      "source": "./plugins/tao",
+      "description": "Advanced multi-model AI reasoning workflows for complex decision analysis, debugging, code review, and technical architecture."
+    },
+    {
+      "name": "clickup",
+      "source": "./plugins/clickup",
+      "description": "ClickUp project management integration via MCP. Create and manage tasks, search projects, update assignments, track progress."
+    },
+    {
+      "name": "wip",
+      "source": "./plugins/wip",
+      "description": "Work-in-progress session handoff: auto-injects WIP.md on fresh start; captures task state on SessionEnd and PreCompact."
+    },
+    {
+      "name": "the-plan",
+      "source": "./plugins/the-plan",
+      "description": "Long-horizon plan-developing infrastructure. Cron-driven Claude Code agent that thinks, refines, and queues — but does not act without approval."
+    },
+    {
+      "name": "tip-of-the-day",
+      "source": "./plugins/tip-of-the-day",
+      "description": "Claude Code intelligence briefing - delivers curated tips about features, plugins, skills, and best practices at session start."
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "search-rag project config",
+  "description": "Per-project config for the search-rag plugin. Drop at project root as .search-rag.json.",
+  "type": "object",
+  "required": ["globs"],
+  "additionalProperties": false,
+  "properties": {
+    "globs": {
+      "description": "File glob patterns to index, relative to project root.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "chunk_size": {
+      "description": "Maximum tokens per text chunk. Must be a positive integer.",
+      "type": "integer",
+      "minimum": 1,
+      "default": 400
+    },
+    "chunk_overlap": {
+      "description": "Token overlap between adjacent chunks. Must be >= 0 and < chunk_size.",
+      "type": "integer",
+      "minimum": 0,
+      "default": 50
+    }
+  }
+}
