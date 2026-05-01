@@ -108,6 +108,19 @@ build_user_profile() {
   echo "$profile"
 }
 
+extract_claude_output() {
+  local input
+  input=$(cat)
+  # Claude Code CLI 2.x wraps responses in a JSON envelope: {"type":"result","result":"..."}
+  # Object with .result → unwrap to inner text. Object without .result → error envelope, suppress.
+  # Non-object input (array, plain text) passes through — defensive for callers without --output-format json.
+  if echo "$input" | jq -e 'type == "object"' >/dev/null 2>&1; then
+    echo "$input" | jq -r '.result // empty'
+  else
+    echo "$input"
+  fi
+}
+
 fetch_online_sources() {
   local config_file="$1"
   if [ ! -f "$config_file" ]; then
@@ -153,7 +166,8 @@ if [ "${MAIN_ENABLED:-false}" = true ]; then
   echo "TOTD: Generating new tips via Claude CLI..." >&2
   NEW_TIPS=$(printf '%s\n\n## Online Sources to Check\n%s\n\n---\n\n%s' \
     "$CONTEXT" "$ONLINE_SOURCES" "$GENERATE_PROMPT" \
-    | claude -p --output-format json --max-turns 3 --allowedTools "WebFetch,Read" 2>/dev/null || echo '[]')
+    | claude -p --output-format json --max-turns 3 --allowedTools "WebFetch,Read" 2>/dev/null \
+    | extract_claude_output || echo '[]')
 
   # Validate and merge
   if echo "$NEW_TIPS" | jq -e 'type == "array"' >/dev/null 2>&1; then
@@ -173,7 +187,8 @@ if [ "${MAIN_ENABLED:-false}" = true ]; then
   echo "TOTD: Curating tip database via Claude CLI..." >&2
   CURATED_DB=$(printf '## Current Tip Database\n\n%s\n\n## User Profile\n%s\n\n## Configuration\nmax_tips: %s\n\n---\n\n%s' \
     "$(cat "$TIPS_FILE")" "$USER_PROFILE" "$MAX_TIPS" "$CURATE_PROMPT" \
-    | claude -p --output-format json --max-turns 1 2>/dev/null || echo '')
+    | claude -p --output-format json --max-turns 1 2>/dev/null \
+    | extract_claude_output || echo '')
 
   NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
   if echo "$CURATED_DB" | jq -e '.tips' >/dev/null 2>&1; then

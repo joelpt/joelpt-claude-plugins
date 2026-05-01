@@ -126,3 +126,29 @@ GENERATE_SCRIPT="$PLUGIN_ROOT/scripts/generate-tips.sh"
   result=$(build_user_profile)
   [ -n "$result" ]
 }
+
+@test "extract_claude_output returns text from CLI JSON wrapper" {
+  source "$GENERATE_SCRIPT" --source-only
+  wrapper='{"type":"result","subtype":"success","result":"[{\"id\":\"tip-abc\"}]","duration_ms":1234}'
+  result=$(echo "$wrapper" | extract_claude_output)
+  [ "$result" = '[{"id":"tip-abc"}]' ]
+}
+
+@test "extract_claude_output returns empty string for error wrapper" {
+  source "$GENERATE_SCRIPT" --source-only
+  wrapper='{"type":"result","subtype":"error_max_turns","is_error":true}'
+  result=$(echo "$wrapper" | extract_claude_output)
+  [ -z "$result" ]
+}
+
+@test "extract_claude_output passes through non-JSON input unchanged" {
+  source "$GENERATE_SCRIPT" --source-only
+  result=$(echo '[]' | extract_claude_output)
+  [ "$result" = '[]' ]
+}
+
+@test "extract_claude_output returns empty string for empty input" {
+  source "$GENERATE_SCRIPT" --source-only
+  result=$(echo -n '' | extract_claude_output)
+  [ -z "$result" ]
+}
