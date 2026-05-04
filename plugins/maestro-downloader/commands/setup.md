@@ -21,7 +21,7 @@ Initialize the maestro-downloader plugin configuration.
 4. Create the directory structure under `<root>/`:
    - `courses/` — one subfolder per downloaded course
    - `index.html` — master UI page (placeholder if not present)
-   - `index.json` — master course index (empty `[]` array if not present)
+   - `index.json` — master course index (empty object `{"lastFetched": null, "courses": []}` if not present)
 
 5. Write `~/.claude/plugins/maestro-downloader/.env` with:
 
@@ -31,7 +31,8 @@ Initialize the maestro-downloader plugin configuration.
    MAESTRO_ROOT=<absolute-root-path>
    ```
 
-6. Run `node lib/setup.js --validate` to do a test login and confirm the credentials work.
+6. Run `node lib/setup.js --validate` from the plugin directory to do a test login.
+   The script reads credentials from the `.env` file written in step 5.
    Report success or failure clearly.
 
 ## Notes

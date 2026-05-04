@@ -40,11 +40,11 @@
 ## Phase 2: Core Commands
 
 ### `/setup` Command
-- [ ] Implement `lib/setup.js`: prompt for BBC Maestro email + password + root folder
-- [ ] Write `.env` to `~/.claude/plugins/maestro-downloader/` (BBC_EMAIL, BBC_PASSWORD, ROOT_FOLDER)
-- [ ] Create folder structure: `<root>/courses/`, `<root>/index.html`, `<root>/index.json` (empty)
-- [ ] Validate credentials: attempt Playwright login, report success or error
-- [ ] Update `commands/setup.md` to reflect final implementation
+- [x] Implement `lib/setup.js`: prompt for BBC Maestro email + password + root folder
+- [x] Write `.env` to `~/.claude/plugins/maestro-downloader/` (MAESTRO_EMAIL, MAESTRO_PASSWORD, MAESTRO_ROOT)
+- [x] Create folder structure: `<root>/courses/`, `<root>/index.html`, `<root>/index.json` (empty)
+- [x] Validate credentials: attempt Playwright login, report success or error
+- [x] Update `commands/setup.md` to reflect final implementation
 
 ### `/fetch-list` Command
 - [ ] Implement `lib/fetch-list.js`:
@@ -81,7 +81,7 @@
 - [ ] Update `commands/download.md` to reflect final implementation
 
 ### Register `/fetch-list` in plugin.json
-- [ ] Add `fetch-list` to the commands list in `.claude-plugin/plugin.json`
+- [x] Add `fetch-list` to the commands list in `.claude-plugin/plugin.json` — N/A: commands auto-discovered from `commands/*.md`; no commands array needed in plugin.json
 
 ---
 
