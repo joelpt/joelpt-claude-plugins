@@ -10,6 +10,7 @@ import { chromium } from 'playwright';
 import { config as dotenvConfig } from 'dotenv';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const BASE_URL = 'https://www.bbcmaestro.com';
 const ENV_PATH = join(homedir(), '.claude', 'plugins', 'maestro-downloader', '.env');
@@ -114,4 +115,4 @@ async function main() {
   }
 }
 
-main();
+if (process.argv[1] === fileURLToPath(import.meta.url)) main();

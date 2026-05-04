@@ -47,38 +47,41 @@
 - [x] Update `commands/setup.md` to reflect final implementation
 
 ### `/fetch-list` Command
-- [ ] Implement `lib/fetch-list.js`:
-  - [ ] Playwright login (stealth user-agent, 2-step email→password flow)
-  - [ ] Scrape `/courses` for all accessible course URLs (`vc-poster` cards)
-  - [ ] For each course: visit course page, extract title/instructor/categories/lesson links
-  - [ ] For each lesson: navigate to lesson page, intercept `.m3u8` network request to get `manifestUrl`
-  - [ ] Apply inter-page delay: `1500 + Math.random() * 2000` ms between lessons
-  - [ ] Apply inter-course delay: `3000 + Math.random() * 3000` ms between courses
-  - [ ] Exponential backoff on HTTP 429/503: 10s → 20s → 40s → 80s → skip + warn
-- [ ] Merge logic: load existing `index.json`; preserve `completed`/`downloadedAt`/`localPath` on known videos; insert new videos with `completed: false`
-- [ ] Atomic write: write to `index.json.tmp`, rename to `index.json`
-- [ ] Update `commands/fetch-list.md` to reflect final implementation
-- [ ] Create `commands/fetch-list.md` stub in `.claude-plugin/plugin.json` command list
+
+- [x] Implement `lib/fetch-list.js`:
+  - [x] Playwright login (stealth user-agent, 2-step email→password flow)
+  - [x] Scrape `/courses` for all accessible course URLs (`vc-poster` cards)
+  - [x] For each course: visit course page, extract title/instructor/categories/lesson links
+  - [x] For each lesson: navigate to lesson page, intercept `.m3u8` network request to get `manifestUrl`
+  - [x] Apply inter-page delay: `1500 + Math.random() * 2000` ms between lessons
+  - [x] Apply inter-course delay: `3000 + Math.random() * 3000` ms between courses
+  - [x] Exponential backoff on HTTP 429/503: 10s → 20s → 40s → 80s → skip + warn
+- [x] Merge logic: load existing `index.json`; preserve `completed`/`downloadedAt`/`localPath` on known videos; insert new videos with `completed: false`
+- [x] Atomic write: write to `index.json.tmp`, rename to `index.json`
+- [x] Update `commands/fetch-list.md` to reflect final implementation
+- [x] Create `commands/fetch-list.md` stub in `.claude-plugin/plugin.json` command list — N/A: auto-discovered
 
 ### `/list` Command
-- [ ] Implement `lib/list.js`: read `index.json`, check `lastFetched` age
-- [ ] Stale cache warning if `lastFetched` absent or >30 days old
-- [ ] Empty cache error if `courses` is absent or empty → instruct user to run `/fetch-list`
-- [ ] Format output: course title + instructor, category breakdown with video count and completion count
-- [ ] Update `commands/list.md` to reflect final implementation
+
+- [x] Implement `lib/list.js`: read `index.json`, check `lastFetched` age
+- [x] Stale cache warning if `lastFetched` absent or >30 days old
+- [x] Empty cache error if `courses` is absent or empty → instruct user to run `/fetch-list`
+- [x] Format output: course title + instructor, category breakdown with video count and completion count
+- [x] Update `commands/list.md` to reflect final implementation
 
 ### `/download` Command
-- [ ] Implement `lib/download.js`:
-  - [ ] Accept course slug argument; look up course in `index.json`
-  - [ ] For each video (skip if `completed: true`):
-    - [ ] Derive 1080p variant URL: replace `.m3u8` → `_1080.m3u8` in `manifestUrl`
-    - [ ] Spawn ffmpeg: `-protocol_whitelist file,http,https,tcp,tls,crypto -i <url> -map 0:v:0 -map 0:a:0 -c:v libsvtav1 -crf 28 -preset 6 -c:a libopus -b:a 128k <output>.webm`
-    - [ ] On ffmpeg exit 0: set `completed: true`, `downloadedAt`, `localPath`; write `index.json`
-    - [ ] On ffmpeg HTTP error (429/503): exponential backoff 10s → 20s → 40s → abort
-    - [ ] Progress: log per-video status and running count
-  - [ ] `--quality 4k` flag: use master manifest directly (ffmpeg selects highest variant)
-- [ ] Support resume: load `index.json` before starting; skip `completed: true` entries
-- [ ] Update `commands/download.md` to reflect final implementation
+
+- [x] Implement `lib/download.js`:
+  - [x] Accept course slug argument; look up course in `index.json`
+  - [x] For each video (skip if `completed: true`):
+    - [x] Derive 1080p variant URL: replace `.m3u8` → `_1080.m3u8` in `manifestUrl`
+    - [x] Spawn ffmpeg: `-protocol_whitelist file,http,https,tcp,tls,crypto -i <url> -map 0:v:0 -map 0:a:0 -c:v libsvtav1 -crf 28 -preset 6 -c:a libopus -b:a 128k <output>.webm`
+    - [x] On ffmpeg exit 0: set `completed: true`, `downloadedAt`, `localPath`; write `index.json`
+    - [x] On ffmpeg HTTP error (429/503): exponential backoff 10s → 20s → 40s → abort
+    - [x] Progress: log per-video status and running count
+  - [x] `--quality 4k` flag: use master manifest directly (ffmpeg selects highest variant)
+- [x] Support resume: load `index.json` before starting; skip `completed: true` entries
+- [x] Update `commands/download.md` to reflect final implementation
 
 ### Register `/fetch-list` in plugin.json
 - [x] Add `fetch-list` to the commands list in `.claude-plugin/plugin.json` — N/A: commands auto-discovered from `commands/*.md`; no commands array needed in plugin.json

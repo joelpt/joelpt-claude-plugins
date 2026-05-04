@@ -1,0 +1,14 @@
+test:
+    node --test tst/*.test.js
+
+test-integration:
+    node --test tst/integration/*.test.js
+
+run:
+    @echo "Usage: /setup, /fetch-list, /list, /download <course>"
+
+build:
+    @echo "No build step needed (pure Node.js)"
+
+smoke:
+    @echo "Manual smoke test: /setup → /fetch-list → /list → /download <course>"

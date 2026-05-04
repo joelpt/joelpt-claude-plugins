@@ -33,21 +33,3 @@ test('exits 1 when MAESTRO_ROOT is missing', () => {
   assert.match(result.stdout + result.stderr, /MAESTRO_ROOT/i);
 });
 
-test('exits 1 with invalid credentials message on bad login', { timeout: 30000 }, () => {
-  const result = spawnSync(
-    process.execPath,
-    [setupScript, '--validate'],
-    {
-      env: {
-        ...process.env,
-        MAESTRO_EMAIL: 'invalid@example.com',
-        MAESTRO_PASSWORD: 'wrongpassword',
-        MAESTRO_ROOT: '/tmp',
-      },
-      encoding: 'utf8',
-      timeout: 30000,
-    },
-  );
-  assert.equal(result.status, 1);
-  assert.match(result.stdout + result.stderr, /login failed|invalid|credentials|error/i);
-});
