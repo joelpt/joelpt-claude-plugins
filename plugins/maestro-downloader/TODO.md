@@ -10,12 +10,12 @@
 - [x] Install dependencies (Playwright/Puppeteer, ffmpeg-fluent, express for local server, etc.)
 
 ### POC: BBC Maestro Browser Automation
-**Blocker risk: HIGH** — If BBC Maestro blocks automated login or video access, the entire plugin fails.
-- [ ] POC: Log in to BBC Maestro with credentials (Playwright headless)
-- [ ] POC: Extract course list from main page (DOM scraping or network inspection)
-- [ ] POC: Navigate to a single course and extract video categories + video metadata
-- [ ] POC: Verify `.ts` fragment URLs are accessible and downloadable via browser context
-- [ ] Document findings: How many .ts fragments per video? Auth/session reqs? Any anti-bot measures?
+**Blocker risk: HIGH** — ✅ RESOLVED — No DRM, CDN fully open.
+- [x] POC: Log in to BBC Maestro with credentials (Playwright headless) — works; reCAPTCHA present but session set before it; stealth mode recommended
+- [x] POC: Extract course list from main page (DOM scraping or network inspection) — `vc-poster` cards, pattern: `/courses/{instructor}/{slug}`
+- [x] POC: Navigate to a single course and extract video categories + video metadata — lesson links at `/courses/.../lessons/{slug}`
+- [x] POC: Verify `.ts` fragment URLs are accessible and downloadable via browser context — CDN is public S3/CloudFront, `Access-Control-Allow-Origin: *`, no auth needed
+- [x] Document findings: How many .ts fragments per video? Auth/session reqs? Any anti-bot measures? — see `poc/01-findings.md`
 
 ### POC: Video Processing Pipeline
 **Blocker risk: MEDIUM** — ffmpeg params and .ts merging must work correctly.

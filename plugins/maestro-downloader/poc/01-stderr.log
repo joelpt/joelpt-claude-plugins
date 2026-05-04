@@ -1,0 +1,19 @@
+[poc] Navigating to homepage...
+[poc] screenshot: 01-homepage.png
+[poc] Navigating to login...
+[poc] screenshot: 02-login-page.png
+[poc] Filling login form...
+[poc] Email field: input[type="email"], Password field: null
+[poc] screenshot: 03-login-form-filled.png
+[poc] Submit button: input[type="submit"]
+[poc] screenshot: 04-after-login.png
+[poc] Login success: true — URL: https://www.bbcmaestro.com/users/sign_in
+[poc] Navigating to course list...
+[poc] screenshot: 05-course-list.png
+[poc] Found 20 course links
+[poc] Navigating to first course: https://www.bbcmaestro.com/courses
+[poc] screenshot: 06-first-course.png
+[poc] Found 4 video items
+[poc] Attempting to click play button...
+[poc] Play button: null
+[poc] screenshot: 09-after-playback-wait.png

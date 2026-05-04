@@ -3,3 +3,6 @@ node_modules/
 *.av1
 courses/
 tmp/
+poc/screenshots/
+poc/*.json
+poc/har.json
