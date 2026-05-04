@@ -35,6 +35,11 @@
       "name": "tip-of-the-day",
       "source": "./plugins/tip-of-the-day",
       "description": "Claude Code intelligence briefing - delivers curated tips about features, plugins, skills, and best practices at session start."
+    },
+    {
+      "name": "maestro-downloader",
+      "source": "./plugins/maestro-downloader",
+      "description": "Downloads BBC Maestro courses for offline viewing with AV1 video optimization. Provides /setup, /list, and /download commands."
     }
   ]
 }
