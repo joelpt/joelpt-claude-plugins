@@ -1,6 +1,6 @@
 # TODO: maestro-downloader Plugin
 
-## Phase 1: Plugin Infrastructure & POCs (Foundation)
+## Phase 1: Plugin Infrastructure & POCs (Foundation) ✅ COMPLETE
 
 ### Setup
 - [x] Create `.claude-plugin/plugin.json` with metadata
@@ -20,7 +20,7 @@
 ### POC: Video Processing Pipeline
 **Blocker risk: MEDIUM** — ✅ RESOLVED — Direct HLS → AV1 WebM confirmed; see `poc/02-findings.md`.
 - [x] POC: Merge a sample .ts file sequence with `ffmpeg -concat` demuxer — superseded; direct HLS is simpler
-- [x] POC: Transcode merged file to AV1 with high-fidelity settings; measure quality vs. file size tradeoff — CRF 28 recommended (~3 Mbps 4K)
+- [x] POC: Transcode merged file to AV1 with high-fidelity settings; measure quality vs. file size tradeoff — CRF 28 / 1080p default confirmed
 - [x] Document findings: ffmpeg CLI params, transcoding time, file size deltas — see `poc/02-findings.md`
 
 ### POC: Browser Playback
@@ -30,87 +30,94 @@
 - [x] Document findings: Browser compatibility, player choice if needed — `.webm`+AV1 is the answer; spec updated
 
 ### POC: Rate Limiting Strategy
-**Blocker risk: MEDIUM** — If exponential backoff doesn't prevent throttling, need alternative.
-- [ ] POC: Implement exponential backoff + jitter; stress-test against BBC Maestro (or test endpoint)
-- [ ] POC: Monitor 429/503 responses; verify backoff adapts correctly
-- [ ] Document findings: Safe download rate, optimal backoff params
+**Blocker risk: MEDIUM** — ✅ RESOLVED — CDN has no rate governing; conservative scraping delay sufficient. See `poc/03-findings.md`.
+- [x] POC: Analyse CDN infrastructure for rate limiting mechanisms — CloudFront + S3, no WAF, no signed URLs, no watch-rate detection
+- [x] POC: Determine safe inter-page delay for `/fetch-list` scraping — 1.5–3.5 s per lesson page, 3–6 s between courses
+- [x] Document findings: CDN architecture, risk surface, recommended params — see `poc/03-findings.md`
 
 ---
 
 ## Phase 2: Core Commands
 
 ### `/setup` Command
-- [ ] Create command handler in `commands/setup.md` and `lib/setup.js`
-- [ ] Prompt for BBC Maestro credentials (username, password)
-- [ ] Prompt for root download folder path
-- [ ] Create folder structure: `<root>/courses/`, `<root>/index.html`, `<root>/index.json`
-- [ ] Generate/save `.env` in `~/.claude/plugins/maestro-downloader/` (use dotenv)
-- [ ] Validate credentials with test login
-- [ ] Output success/error messaging
+- [ ] Implement `lib/setup.js`: prompt for BBC Maestro email + password + root folder
+- [ ] Write `.env` to `~/.claude/plugins/maestro-downloader/` (BBC_EMAIL, BBC_PASSWORD, ROOT_FOLDER)
+- [ ] Create folder structure: `<root>/courses/`, `<root>/index.html`, `<root>/index.json` (empty)
+- [ ] Validate credentials: attempt Playwright login, report success or error
+- [ ] Update `commands/setup.md` to reflect final implementation
+
+### `/fetch-list` Command
+- [ ] Implement `lib/fetch-list.js`:
+  - [ ] Playwright login (stealth user-agent, 2-step email→password flow)
+  - [ ] Scrape `/courses` for all accessible course URLs (`vc-poster` cards)
+  - [ ] For each course: visit course page, extract title/instructor/categories/lesson links
+  - [ ] For each lesson: navigate to lesson page, intercept `.m3u8` network request to get `manifestUrl`
+  - [ ] Apply inter-page delay: `1500 + Math.random() * 2000` ms between lessons
+  - [ ] Apply inter-course delay: `3000 + Math.random() * 3000` ms between courses
+  - [ ] Exponential backoff on HTTP 429/503: 10s → 20s → 40s → 80s → skip + warn
+- [ ] Merge logic: load existing `index.json`; preserve `completed`/`downloadedAt`/`localPath` on known videos; insert new videos with `completed: false`
+- [ ] Atomic write: write to `index.json.tmp`, rename to `index.json`
+- [ ] Update `commands/fetch-list.md` to reflect final implementation
+- [ ] Create `commands/fetch-list.md` stub in `.claude-plugin/plugin.json` command list
 
 ### `/list` Command
-- [ ] Create command handler in `commands/list.md` and `lib/list.js`
-- [ ] Load credentials from `.env`
-- [ ] Launch headless browser, log in, fetch course list
-- [ ] Format output: Group courses by category; include course name, duration, instructor (if available)
-- [ ] Cache course list (optional: in memory for session, or short-lived JSON file)
+- [ ] Implement `lib/list.js`: read `index.json`, check `lastFetched` age
+- [ ] Stale cache warning if `lastFetched` absent or >30 days old
+- [ ] Empty cache error if `courses` is absent or empty → instruct user to run `/fetch-list`
+- [ ] Format output: course title + instructor, category breakdown with video count and completion count
+- [ ] Update `commands/list.md` to reflect final implementation
 
 ### `/download` Command
-- [ ] Create command handler in `commands/download.md` and `lib/download.js`
-- [ ] Accept course name argument (auto-complete from `/list` output)
-- [ ] Load/create `config.json` for the course
-- [ ] Main loop:
-  - [ ] For each category:
-    - [ ] For each video (skip if already marked complete):
-      - [ ] Download .ts fragments
-      - [ ] Merge fragments with ffmpeg
-      - [ ] Transcode to AV1
-      - [ ] Save to `videos/<category>/<index-title>.av1`
-      - [ ] Update `config.json` (mark video complete, update progress metadata)
-      - [ ] Apply rate limiting (exponential backoff + jitter)
-  - [ ] After all videos complete, populate `index.json` for UI
-- [ ] Support resume: Rerunning `/download` for same course skips completed videos
-- [ ] Progress reporting: Log per-video status, ETA, error recovery
+- [ ] Implement `lib/download.js`:
+  - [ ] Accept course slug argument; look up course in `index.json`
+  - [ ] For each video (skip if `completed: true`):
+    - [ ] Derive 1080p variant URL: replace `.m3u8` → `_1080.m3u8` in `manifestUrl`
+    - [ ] Spawn ffmpeg: `-protocol_whitelist file,http,https,tcp,tls,crypto -i <url> -map 0:v:0 -map 0:a:0 -c:v libsvtav1 -crf 28 -preset 6 -c:a libopus -b:a 128k <output>.webm`
+    - [ ] On ffmpeg exit 0: set `completed: true`, `downloadedAt`, `localPath`; write `index.json`
+    - [ ] On ffmpeg HTTP error (429/503): exponential backoff 10s → 20s → 40s → abort
+    - [ ] Progress: log per-video status and running count
+  - [ ] `--quality 4k` flag: use master manifest directly (ffmpeg selects highest variant)
+- [ ] Support resume: load `index.json` before starting; skip `completed: true` entries
+- [ ] Update `commands/download.md` to reflect final implementation
+
+### Register `/fetch-list` in plugin.json
+- [ ] Add `fetch-list` to the commands list in `.claude-plugin/plugin.json`
 
 ---
 
 ## Phase 3: UI & Integration
 
 ### HTML UI (`ui/index.html`)
-- [ ] Master course index: Fetch `index.json`, render course tiles (name, thumbnail, completion %)
+- [ ] Master course index: read `index.json`, render course tiles with completion %
 - [ ] Query param routing:
-  - [ ] `?course=<ConciseCourseTitle>` → Show course detail page (categories + videos list)
-  - [ ] `?video=<ConciseCourseTitle>/<ConciseCategoryTitle>/<IndexNumber-ConciseVideoTitle>.av1>` → Show video player with `<video>` element
-- [ ] Navigation: Links between master index → course view → video player
-- [ ] Styling: Clean, responsive layout (mobile-friendly for viewing on tablets)
+  - [ ] `?course=<slug>` → course detail (categories + video list with download status)
+  - [ ] `?video=<path>` → video player with HTML5 `<video>` element (`.webm`)
+- [ ] Navigation: master index → course view → video player
+- [ ] Styling: clean, responsive layout (tablet-friendly)
 
 ### Local Server
-- [ ] Create simple HTTP server (Express or Node's http) to serve UI and video files
-- [ ] Serve static files from `<root>/` with appropriate MIME types for `.av1`
-- [ ] Handle relative paths for video playback
+- [ ] Simple Express server serving `<root>/` with correct MIME type for `.webm` (`video/webm`)
 
 ### Integration Testing
-- [ ] End-to-end: `/setup` → `/list` → `/download` → verify folder structure and UI
-- [ ] Test resume on `/download` rerun
-- [ ] Test UI navigation and video playback
-- [ ] Error handling: Invalid credentials, network failures, incomplete downloads
+- [ ] End-to-end: `/setup` → `/fetch-list` → `/list` → `/download` single video → open in browser
+- [ ] Test resume: interrupt `/download`, rerun, verify only incomplete videos are downloaded
+- [ ] Test `/fetch-list` additive merge: manually add a fake video to `index.json`, rerun, verify it's preserved
+- [ ] Error handling: invalid credentials, network timeout, disk full
 
 ---
 
 ## Phase 4: Polish & Deployment
 
-- [ ] Error messages: User-friendly errors for common failure modes (login failed, network timeout, disk full, etc.)
-- [ ] Logging: Structured logs for debugging download issues
-- [ ] Documentation: Update README with setup/usage instructions
-- [ ] Register plugin in parent repo's `marketplace.json` (see parent CLAUDE.md for workflow)
-- [ ] Test on macOS and Linux (Windows compatibility TBD)
+- [ ] User-friendly error messages for common failure modes
+- [ ] Structured logging (debug for segment fetches, info for per-video progress, warn/error for failures)
+- [ ] Register plugin in parent repo's `marketplace.json`
+- [ ] Test on macOS and Linux
 
 ---
 
 ## Notes
 
-- **Dependency lock**: Confirm Playwright/Puppeteer version before committing (npm/yarn.lock)
-- **Secrets**: `.env` must never be committed; add to `.gitignore`
-- **Browser reuse**: Consider keeping a persistent headless browser session across `/list` and `/download` to avoid repeated login overhead
-- **Logging levels**: Debug logs for .ts downloads, info for per-video progress, warn/error for failures
-
+- **Secrets**: `.env` must never be committed; verify `.gitignore`
+- **Browser session**: Keep Playwright browser open across all lesson page loads within a `/fetch-list` run to avoid repeated login
+- **Logging levels**: debug for HTTP requests, info for per-video progress, warn/error for failures
+- **`manifestUrl` never expires**: URLs captured during `/fetch-list` remain valid indefinitely (confirmed by POC — March 2026 URLs still valid in May 2026)

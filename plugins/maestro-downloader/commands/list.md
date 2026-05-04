@@ -1,35 +1,43 @@
 ---
-description: List all available BBC Maestro courses, grouped by category, using stored credentials.
+description: Display the cached BBC Maestro course catalogue from index.json.
 ---
 
 # /list
 
-Fetch and display the current BBC Maestro course catalogue.
+Display the BBC Maestro course catalogue from the local cache.
 
 ## Steps
 
-1. Load credentials from `~/.claude/plugins/maestro-downloader/.env`.
-   If `.env` does not exist, tell the user to run `/setup` first.
+1. Load `.env` from `~/.claude/plugins/maestro-downloader/`.
+   If absent, tell the user to run `/setup` first and stop.
 
-2. Run `node lib/list.js` which:
-   - Launches a headless Playwright browser
-   - Logs in to BBC Maestro with the stored credentials
-   - Scrapes the course listing page
-   - Returns a JSON array of courses: `{ title, category, instructor, duration?, url }`
+2. Read `<root>/index.json` (root folder is specified in `.env`).
 
-3. Display results grouped by category, formatted as:
+3. Check cache validity:
+   - If `index.json` does not exist or `courses` is empty → print:
+     > "No course catalogue found. Run `/fetch-list` to scan your BBC Maestro account."
+     Then stop.
+   - If `lastFetched` is absent or older than 30 days → print a warning at the top:
+     > "⚠ Course list was last updated on <date> — it may be out of date. Run `/fetch-list` to refresh."
+     Then continue displaying the cached data.
+
+4. Run `node lib/list.js` which reads `index.json` and displays results grouped by course,
+   showing categories and video counts:
 
    ```text
-   ## <Category Name>
+   ## <Course Title> — <Instructor>
+   <N> videos across <M> categories
+   Last fetched: <date>
 
-   - <Course Title> — <Instructor> (<Duration>)
-   - ...
+   Categories:
+     - <Category Name> (<video count> videos, <completed count> downloaded)
    ```
 
-4. After listing, note how many total courses were found and remind the user they can
-   run `/download <course title>` to download any course.
+5. After listing, remind the user:
+   - `/fetch-list` — refresh the catalogue
+   - `/download <course title>` — download a course for offline viewing
 
 ## Notes
 
-- Course titles shown here are used as the `<ConciseCourseTitle>` argument for `/download`.
-- The list is fetched live each time; there is no persistent cache.
+- This command never opens a browser — it only reads the local `index.json` cache.
+- To update the catalogue (new courses, new lessons added to existing courses), run `/fetch-list`.

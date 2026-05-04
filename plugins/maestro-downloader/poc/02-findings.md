@@ -35,37 +35,60 @@ ffmpeg -y \
 
 ---
 
-## 2. CRF Quality/Size Tradeoff (4K / 2160p, 60-second clip)
+## 2. CRF Quality/Size Tradeoff — 4K (2160p), 60-second clip
 
-All tests on the highest available variant: `...HEVC_2160.m3u8` (source: ~46 Mbps H.264).
+Source variant: `...HEVC_2160.m3u8` (~46 Mbps H.264).
 
 | CRF | Output size | Avg bitrate | Encoding speed | Est. 9-min lesson |
 |-----|-------------|-------------|----------------|-------------------|
-| 23  | 33 MB       | ~4600 kbps  | ~1.00x realtime | ~297 MB, ~9 min wall time |
-| 28  | 22 MB       | ~2950 kbps  | ~1.05x realtime | ~198 MB, ~8.6 min wall time |
-| 32  | 16 MB       | ~2160 kbps  | ~1.10x realtime | ~144 MB, ~8.2 min wall time |
+| 23  | 33 MB       | ~4600 kbps  | ~1.00× realtime | ~297 MB, ~9 min |
+| 28  | 22 MB       | ~2950 kbps  | ~1.05× realtime | ~198 MB, ~9 min |
+| 32  | 16 MB       | ~2160 kbps  | ~1.10× realtime | ~144 MB, ~8 min |
 
-**Recommended default: CRF 28.**
-AV1 at ~3 Mbps for 4K is roughly equivalent perceptual quality to the source H.264 at
-10–15 Mbps (AV1 gains ~40–50% coding efficiency over H.264).
-The 46 Mbps source is overkill for offline playback; CRF 28 is the practical sweet spot.
+At 4K, encoding speed is bottlenecked by network I/O (pulling ~46 Mbps of source).
+All CRF values run at approximately 1× realtime — wall time ≈ video duration.
 
 ---
 
-## 3. Encoding Speed (Apple Silicon, M-series, preset 6)
+## 3. CRF Quality/Size Tradeoff — 1080p, 60-second clip
 
-- SVT-AV1 preset 6 runs at essentially **1.0× realtime for 4K** on this machine
-- CPU usage: ~700% (7 cores active)
-- A full 9-minute (513s) lesson takes ~8.5–9 minutes wall time end-to-end
+Source variant: `...HEVC_1080.m3u8` (~11.5 Mbps H.264).
 
-This means download + encode is bottlenecked by network I/O and CPU roughly equally.
-The user should expect ~1× realtime wall time per lesson at CRF 28.
+| CRF | Output size | Avg bitrate | Encoding speed | Est. 9-min lesson |
+|-----|-------------|-------------|----------------|-------------------|
+| 23  | 10 MB       | ~1400 kbps  | ~4.0× realtime | ~90 MB, ~2.25 min |
+| 28  | 7.4 MB      | ~1030 kbps  | ~3.0× realtime | ~67 MB, ~3 min    |
+| 35  | 5.2 MB      | ~725 kbps   | ~3.7× realtime | ~47 MB, ~2.4 min  |
+| 40  | 4.3 MB      | ~590 kbps   | ~3.7× realtime | ~39 MB, ~2.4 min  |
 
-For a 10-lesson course at 9 min/lesson: ~90 minutes total download time.
+At 1080p, the bottleneck shifts to CPU — encode runs 3–4× faster than realtime.
+The quality cliff hits around CRF 35: below that, sharpness visibly degrades at full screen.
+CRF 40 at 590 kbps is below Netflix's SD floor; not recommended for 1080p content.
+
+**Decided default: 1080p, CRF 28.**
+
+Rationale:
+- 3× faster than 4K (3 min vs 9 min per lesson), 3× smaller files (67 MB vs 198 MB)
+- Perceptual quality difference between 1080p and 4K is imperceptible for instructor-on-camera
+  educational content at normal viewing distances and screen sizes
+- AV1 at ~1 Mbps for 1080p talking-head content is near-transparent quality
+- 4K remains available via `--quality 4k` flag for future implementation
 
 ---
 
-## 4. Audio — Critical Fix
+## 4. Encoding Speed (Apple Silicon, M-series, preset 6)
+
+- 1080p CRF 28: **~3× realtime** — 9-min lesson encodes in ~3 min
+- 4K CRF 28: **~1× realtime** — 9-min lesson encodes in ~9 min
+- CPU usage: ~700% (7 P-cores saturated with SVT-AV1 NEON SIMD)
+
+**For a 10-lesson course at ~9 min/lesson at 1080p (default):** ~30 min total, ~670 MB disk.
+
+**For a 10-lesson course at ~9 min/lesson at 4K:** ~90 min total, ~2 GB disk.
+
+---
+
+## 5. Audio — Critical Fix
 
 The 4K variant `.ts` segments contain H.264 video + AAC-LC audio (2ch, 48 kHz).
 Without `-map 0:v:0 -map 0:a:0`, ffmpeg silently produces a video-only output.

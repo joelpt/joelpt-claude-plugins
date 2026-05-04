@@ -1,23 +1,108 @@
 This is a Claude Code plugin which provides a video downloader functionality for BBC Maestro.
 
-## Supported commands:
+## Supported commands
 
-/setup - initializes a .env file if it doesn't exist in the plugin's folder (under ~/.claude/plugins/...). Allow specification of username and password to use when accessing BBC Maestro website plus the root folder under which all downloaded courses will be placed (<root folder>/courses/<name of course>/...)
+### `/setup`
 
-/list - presents a list of all the currently available bbc maestro courses, broken down by category
+Initializes a `.env` file in the plugin's folder (`~/.claude/plugins/maestro-downloader/`).
+Prompts for BBC Maestro credentials (email, password) and the root download folder.
+Creates the folder structure: `<root>/courses/`, `<root>/index.html`, `<root>/index.json`.
 
-/download - performs the download and offline preparation for a given named course
+### `/fetch-list`
 
+Performs a full crawl of the user's BBC Maestro account.
+Logs in via headless browser (Playwright), visits every accessible course page and each
+lesson page sequentially, and writes the complete course/category/video catalogue —
+including CDN manifest URLs — to `<root>/index.json`.
 
-## How download mechanism works:  
+Key behaviours:
 
-1. The specified course's content index is discovered and recorded in its dedicated /courses/<ConciseCourseTitle>/ folder (hereafter referred to as cf) as config.json. Each course may have one or more categories of videos, for example "Course" and "Vocal Exercises" categories might exist for a course on singing; this varies uniquely per course. This json is also used to keep track of which videos have been downloaded so far.
-2. The videos will be downloaded to cf/videos/<ConciseCategoryTitle>/<IndexNumber-ConciseVideoTitle>.webm. BBC Maestro delivers videos as HLS (.m3u8 manifests + .ts segments) with no DRM and a fully public CDN. A single ffmpeg call downloads, merges, and transcodes each lesson to AV1+Opus in one pass (no intermediate files). The output container is WebM (AV1 video + Opus audio), which plays natively in Chrome, Firefox, and Edge. Each video file is transcoded to AV1 using libsvtav1 at CRF 28, preset 6 for high fidelity at ~3 Mbps for 4K content. Rerunning /download will cause the plugin to resume its work if there were any not-yet-downloaded videos. Once a video is downloaded and saved, it's marked as complete in the .json.
-   - intelligent rate limiting with exponential backoff & jitter.
-   - MVP: purely sequential downloading. Downloading uses a headless browser (Playwright) only to log in and extract HLS manifest URLs from lesson pages. The actual download+transcode is done by ffmpeg directly against the public CDN — no browser involvement during the download itself. After each successful video encode, we start the next one: the pause between each such download task will help avoid rate limiting constraints.
+- Sequential page loads only; random 1.5–3.5 s inter-page delay and 3–6 s inter-course
+  delay to stay within normal browsing patterns.
+- **Additive / non-destructive update:** existing records in `index.json` are merged, not
+  replaced. Completion status, `downloadedAt`, and `localPath` fields on already-known
+  videos are preserved. Newly discovered videos (e.g. a course that added a bonus lesson)
+  are inserted with `completed: false`.
+- Overwrites `lastFetched` timestamp on each run.
+- Intended to be run rarely — on first use and when the library may have changed.
 
-## UI features:
+### `/list`
 
-1. There shall be a master index page at cf/index.html. There shall be a master downloaded-courses list at cf/index.json which index.html reads to present the available-downloaded-courses index to the user. index.json won't be populated until all the videos have been downloaded for a given course.
-2. Clicking on a given courses's tile in cf/index.html will direct the user to an individual course's index page. cf/index.html shall also be reponsible for showing these pages using something like cf/index.html?course=<ConciseCourseTitle>. All categories and their videos will be shown in a single page ((categories -> videos).
-3. Click on an individual video will open a viewer for the video using something like cf/index.html?video=<ConciseCourseTitle/ConciseCategoryTitle/IndexNumber-ConciseVideoTitle.webm>.
+Reads `index.json` from the root folder and displays the course catalogue.
+If `index.json` is absent, empty, or older than 30 days, instructs the user to run
+`/fetch-list` first.
+
+### `/download <course>`
+
+Downloads and transcodes all videos in a named course for offline playback.
+Reads manifest URLs from `index.json` (no browser required during download).
+Resumes automatically if rerun — already-completed videos are skipped.
+
+---
+
+## index.json schema
+
+`index.json` lives at `<root>/index.json` and is the single source of truth for the
+course catalogue and download state.
+
+```json
+{
+  "lastFetched": "2026-05-04T08:00:00Z",
+  "courses": [
+    {
+      "slug": "owen-o-kane/a-life-less-anxious",
+      "title": "A Life Less Anxious",
+      "instructor": "Owen O'Kane",
+      "courseUrl": "https://www.bbcmaestro.com/courses/owen-o-kane/a-life-less-anxious",
+      "categories": [
+        {
+          "title": "Lessons",
+          "videos": [
+            {
+              "index": 22,
+              "title": "Dare to Dream",
+              "lessonUrl": "https://www.bbcmaestro.com/courses/owen-o-kane/a-life-less-anxious/lessons/dare-to-dream",
+              "manifestUrl": "https://videos.cdn.bbcmaestro.com/.../HLS/....m3u8",
+              "completed": false,
+              "downloadedAt": null,
+              "localPath": null
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+`manifestUrl` is the HLS master manifest URL intercepted from the lesson page network
+traffic during `/fetch-list`. This is the only CDN URL stored — ffmpeg resolves and
+downloads the individual `.ts` segments at encode time. No segment URLs are stored.
+
+---
+
+## Download pipeline
+
+For each video in a course (reads from `index.json`):
+
+1. Skip if `completed: true`.
+2. Call `ffmpeg` with the cached `manifestUrl` — downloads + merges + transcodes in one
+   pass, no intermediate files on disk.
+   - Default quality: 1080p, CRF 28, libsvtav1 preset 6, Opus 128k audio → `.webm`
+   - Optional: `--quality 4k` selects the 2160p HLS variant (~3× larger, ~3× slower)
+3. On success: set `completed: true`, `downloadedAt`, `localPath` in `index.json`.
+4. Exponential backoff (10s → 20s → 40s → abort) on ffmpeg HTTP errors (429/503).
+
+Encoding performance (Apple Silicon, M-series):
+
+- 1080p: ~3× realtime — 9-min lesson encodes in ~3 min, ~67 MB output
+- 4K: ~1× realtime — 9-min lesson encodes in ~9 min, ~198 MB output
+
+---
+
+## UI features
+
+1. `<root>/index.html` — master course index; reads `index.json` to render course tiles.
+2. `?course=<slug>` — course detail page showing categories and video list.
+3. `?video=<ConciseCourseTitle/ConciseCategoryTitle/IndexNumber-ConciseVideoTitle.webm>` — video player using HTML5 `<video>` element.
+   WebM (AV1+Opus) plays natively in Chrome 70+, Firefox 67+, Edge, and Safari 17+.
