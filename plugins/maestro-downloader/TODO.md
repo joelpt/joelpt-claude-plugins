@@ -18,16 +18,16 @@
 - [x] Document findings: How many .ts fragments per video? Auth/session reqs? Any anti-bot measures? — see `poc/01-findings.md`
 
 ### POC: Video Processing Pipeline
-**Blocker risk: MEDIUM** — ffmpeg params and .ts merging must work correctly.
-- [ ] POC: Merge a sample .ts file sequence with `ffmpeg -concat` demuxer
-- [ ] POC: Transcode merged file to AV1 with high-fidelity settings; measure quality vs. file size tradeoff
-- [ ] Document findings: ffmpeg CLI params, transcoding time, file size deltas
+**Blocker risk: MEDIUM** — ✅ RESOLVED — Direct HLS → AV1 WebM confirmed; see `poc/02-findings.md`.
+- [x] POC: Merge a sample .ts file sequence with `ffmpeg -concat` demuxer — superseded; direct HLS is simpler
+- [x] POC: Transcode merged file to AV1 with high-fidelity settings; measure quality vs. file size tradeoff — CRF 28 recommended (~3 Mbps 4K)
+- [x] Document findings: ffmpeg CLI params, transcoding time, file size deltas — see `poc/02-findings.md`
 
 ### POC: Browser Playback
-**Blocker risk: LOW** — Most browsers support H.264/VP9; AV1 support varies.
-- [ ] POC: Test HTML5 `<video>` playback of local `.av1` file in major browsers
-- [ ] POC: If native support lacking, evaluate lightweight player lib (hls.js, video.js, etc.)
-- [ ] Document findings: Browser compatibility, player choice if needed
+**Blocker risk: LOW** — ✅ RESOLVED — `.webm` (AV1+Opus) plays natively; no player lib needed.
+- [x] POC: Test HTML5 `<video>` playback of local `.webm` file in major browsers — Chrome 70+, Firefox 67+, Edge, Safari 17+ all support AV1 in WebM natively
+- [x] POC: If native support lacking, evaluate lightweight player lib — not needed
+- [x] Document findings: Browser compatibility, player choice if needed — `.webm`+AV1 is the answer; spec updated
 
 ### POC: Rate Limiting Strategy
 **Blocker risk: MEDIUM** — If exponential backoff doesn't prevent throttling, need alternative.

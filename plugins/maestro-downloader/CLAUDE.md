@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## maestro-downloader plugin
 
-A Claude Code plugin that downloads BBC Maestro courses for offline viewing with AV1 video optimization. The plugin manages course discovery, intelligent rate-limited downloading of .ts video fragments, merging, transcoding, and serves a local HTML UI for playback.
+A Claude Code plugin that downloads BBC Maestro courses for offline viewing with AV1 video optimization. The plugin manages course discovery, intelligent rate-limited downloading via ffmpeg direct HLS, transcoding to AV1+Opus WebM, and serves a local HTML UI for playback.
 
 ## Project Status
 
@@ -21,30 +21,30 @@ The plugin exposes three CLI commands (`/setup`, `/list`, `/download`) and maint
   - Video index (categories → videos)
   - Download progress (marking videos complete as they're processed)
   - Category structure (varies per course)
-- **Downloaded videos**: Stored in `<course-folder>/videos/<ConciseCategoryTitle>/<IndexNumber-ConciseVideoTitle>.av1`
+- **Downloaded videos**: Stored in `<course-folder>/videos/<ConciseCategoryTitle>/<IndexNumber-ConciseVideoTitle>.webm`
 - **UI index**: Master index at `<root>/index.html` and per-course indices; index.json lists completed courses
 
 ### Download Pipeline
 
-Sequential processing per video:
-1. BBC Maestro delivers videos as .ts fragment sequences
-2. Download .ts series using a headless browser (Puppeteer or Playwright expected)
-3. Merge .ts fragments into a single file
-4. Transcode to AV1 with ffmpeg (high fidelity, minimal practical loss)
-5. Save as `.av1` file and mark complete in `config.json`
-6. Rate limiting: exponential backoff with jitter between videos to avoid throttling
+Sequential processing per video (single ffmpeg call — no intermediate files):
+1. Playwright logs in and extracts HLS manifest URLs from lesson pages
+2. CDN is fully public — no auth needed for actual download
+3. `ffmpeg -protocol_whitelist file,http,https,tcp,tls,crypto -i <m3u8_url> -map 0:v:0 -map 0:a:0 -c:v libsvtav1 -crf 28 -preset 6 -c:a libopus -b:a 128k <output>.webm`
+4. Save as `.webm` (AV1+Opus) and mark complete in `config.json`
+5. Rate limiting: exponential backoff with jitter between videos to avoid throttling
+6. Encoding speed: ~1× realtime for 4K on Apple Silicon (preset 6)
 
 ### Command Structure
 
 - **`/setup`**: Initialize `.env` in plugin folder with BBC Maestro credentials and root download folder; create folder structure
 - **`/list`**: Fetch available courses from BBC Maestro, categorize, and display to user
-- **`/download`**: Main orchestrator; resumes on rerun if incomplete; downloads → merges → transcodes each video in sequence
+- **`/download`**: Main orchestrator; resumes on rerun if incomplete; extracts manifest URL → ffmpeg encode → mark complete, per video in sequence
 
 ### UI
 
 - **`index.html`**: Master course index; uses query params (`?course=...` for course view, `?video=...` for video viewer)
 - **`index.json`**: Auto-populated only after all videos in a course are downloaded
-- Single-page navigation; video viewer embeds playback of local .av1 files
+- Single-page navigation; video viewer embeds playback of local `.webm` files via HTML5 `<video>` (AV1+Opus, supported natively in Chrome 70+, Firefox 67+, Edge, Safari 17+)
 
 ## Development Quickstart
 
@@ -69,8 +69,8 @@ hooks/
 
 ### Key Implementation Notes
 
-- **Browser automation**: Headless browser must handle login and in-page video download controls (likely using Puppeteer/Playwright with event listeners for file downloads)
-- **ffmpeg integration**: Subtask-level; call `ffmpeg` subprocess with AV1 codec params; output format `.av1`
+- **Browser automation**: Playwright (confirmed working) handles login and HLS manifest URL extraction. No browser involvement during the actual download — ffmpeg pulls segments directly from the public CDN.
+- **ffmpeg integration**: Single subprocess per video; flags: `-protocol_whitelist file,http,https,tcp,tls,crypto -map 0:v:0 -map 0:a:0 -c:v libsvtav1 -crf 28 -preset 6 -c:a libopus -b:a 128k`. Output format: `.webm`.
 - **Rate limiting**: Exponential backoff + jitter; implement as async delays between video processing
 - **Resumability**: `config.json` must be saved after each successful video, allowing `/download` reruns to skip completed videos
 - **Environment**: `.env` stored in `~/.claude/plugins/maestro-downloader/` (not git-tracked), loaded by commands
