@@ -5,6 +5,7 @@ import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { config as dotenvConfig } from 'dotenv';
 import { isStaleCache } from './index-utils.js';
+import { info, warn, error } from './logger.js';
 
 const ENV_PATH = join(homedir(), '.claude', 'plugins', 'maestro-downloader', '.env');
 dotenvConfig({ path: ENV_PATH, override: false });
@@ -28,13 +29,13 @@ export function formatCourseList(courses) {
 async function main() {
   const root = process.env.MAESTRO_ROOT?.trim();
   if (!root) {
-    process.stderr.write('Error: MAESTRO_ROOT not set. Run /setup first.\n');
+    error('MAESTRO_ROOT not set. Run /setup first.');
     process.exit(1);
   }
 
   const indexPath = join(root, 'index.json');
   if (!existsSync(indexPath)) {
-    process.stdout.write('No course catalogue found.\nRun /fetch-list to build the catalogue.\n');
+    info('No course catalogue found.\nRun /fetch-list to build the catalogue.');
     process.exit(0);
   }
 
@@ -42,19 +43,19 @@ async function main() {
   try {
     indexData = JSON.parse(readFileSync(indexPath, 'utf8'));
   } catch {
-    process.stderr.write('Error: index.json is corrupted. Run /fetch-list to rebuild it.\n');
+    error('index.json is corrupted. Run /fetch-list to rebuild it.');
     process.exit(1);
   }
 
   if (!indexData.courses || indexData.courses.length === 0) {
-    process.stdout.write('Course catalogue is empty.\nRun /fetch-list to populate it.\n');
+    info('Course catalogue is empty.\nRun /fetch-list to populate it.');
     process.exit(0);
   }
 
   if (isStaleCache(indexData.lastFetched)) {
-    process.stdout.write(
-      `Warning: catalogue was last fetched ${indexData.lastFetched ? new Date(indexData.lastFetched).toDateString() : 'never'} (>30 days ago).\n` +
-      'Run /fetch-list to refresh it.\n\n',
+    warn(
+      `catalogue was last fetched ${indexData.lastFetched ? new Date(indexData.lastFetched).toDateString() : 'never'} (>30 days ago).\n` +
+      'Run /fetch-list to refresh it.',
     );
   }
 

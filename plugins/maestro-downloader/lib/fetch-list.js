@@ -6,14 +6,12 @@ import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { mergeCourses, atomicWriteJson } from './index-utils.js';
+import { info, warn, debug, error } from './logger.js';
 
 const BASE_URL = 'https://www.bbcmaestro.com';
 const ENV_PATH = join(homedir(), '.claude', 'plugins', 'maestro-downloader', '.env');
 
 dotenvConfig({ path: ENV_PATH, override: false });
-
-function log(msg) { process.stdout.write(`${msg}\n`); }
-function warn(msg) { process.stderr.write(`Warning: ${msg}\n`); }
 
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
@@ -197,6 +195,7 @@ async function getLessonManifest(page, lessonUrl) {
 
   const manifestResp = await manifestPromise;
   manifestUrl = manifestResp?.url() ?? null;
+  if (manifestUrl) debug(`manifest captured: ${manifestUrl}`);
 
   if (!manifestUrl) {
     const playBtn = page.locator('button[aria-label*="Play"], [class*="play-button"], [class*="playButton"]').first();
@@ -207,6 +206,7 @@ async function getLessonManifest(page, lessonUrl) {
         { timeout: 10000 },
       ).catch(() => null);
       manifestUrl = retry?.url() ?? null;
+      if (manifestUrl) debug(`manifest captured (via play click): ${manifestUrl}`);
     }
   }
 
@@ -218,15 +218,15 @@ async function crawl(email, password, root) {
   const page = await context.newPage();
 
   try {
-    log('Logging in to BBC Maestro...');
+    info('Logging in to BBC Maestro...');
     await login(page, email, password);
-    log('Login successful.');
+    info('Login successful.');
 
     const courseUrls = await withBackoff('/courses page', () => getCourseUrls(page));
     if (!courseUrls || courseUrls.length === 0) {
       throw new Error('No courses found. Ensure your account has active subscriptions.');
     }
-    log(`Found ${courseUrls.length} course(s).`);
+    info(`Found ${courseUrls.length} course(s).`);
 
     const existingIndex = (() => {
       const indexPath = join(root, 'index.json');
@@ -239,7 +239,7 @@ async function crawl(email, password, root) {
 
     for (let ci = 0; ci < courseUrls.length; ci++) {
       const courseUrl = courseUrls[ci];
-      log(`[${ci + 1}/${courseUrls.length}] Scraping course: ${courseUrl}`);
+      info(`[${ci + 1}/${courseUrls.length}] Scraping course: ${courseUrl}`);
 
       const courseData = await withBackoff(courseUrl, () => scrapeCoursePage(page, courseUrl));
       if (!courseData) {
@@ -257,7 +257,7 @@ async function crawl(email, password, root) {
         for (let li = 0; li < cat.lessonLinks.length; li++) {
           const lesson = cat.lessonLinks[li];
           const lessonLabel = `${courseData.slug} / ${cat.title} / lesson ${li + 1}`;
-          log(`  Lesson ${li + 1}/${cat.lessonLinks.length}: ${lesson.href}`);
+          info(`  Lesson ${li + 1}/${cat.lessonLinks.length}: ${lesson.href}`);
 
           const manifestUrl = await withBackoff(lessonLabel, () => getLessonManifest(page, lesson.href));
 
@@ -307,8 +307,8 @@ async function crawl(email, password, root) {
     await atomicWriteJson(join(root, 'index.json'), indexData);
 
     const totalVideos = allMergedVideos.length;
-    log(`\nCatalogue updated: ${mergedCourses.length} courses, ${totalVideos} total videos (${newVideoCount} new since last fetch).`);
-    log('Run /list to browse, or /download <course> to start downloading.');
+    info(`\nCatalogue updated: ${mergedCourses.length} courses, ${totalVideos} total videos (${newVideoCount} new since last fetch).`);
+    info('Run /list to browse, or /download <course> to start downloading.');
   } finally {
     await context.close().catch(() => {});
     await browser.close().catch(() => {});
@@ -320,14 +320,14 @@ async function main() {
   const password = process.env.MAESTRO_PASSWORD?.trim();
   const root = process.env.MAESTRO_ROOT?.trim();
 
-  if (!email) { process.stderr.write('Error: MAESTRO_EMAIL not set. Run /setup first.\n'); process.exit(1); }
-  if (!password) { process.stderr.write('Error: MAESTRO_PASSWORD not set. Run /setup first.\n'); process.exit(1); }
-  if (!root) { process.stderr.write('Error: MAESTRO_ROOT not set. Run /setup first.\n'); process.exit(1); }
+  if (!email) { error('MAESTRO_EMAIL not set. Run /setup first.'); process.exit(1); }
+  if (!password) { error('MAESTRO_PASSWORD not set. Run /setup first.'); process.exit(1); }
+  if (!root) { error('MAESTRO_ROOT not set. Run /setup first.'); process.exit(1); }
 
   try {
     await crawl(email, password, root);
   } catch (err) {
-    process.stderr.write(`Error: ${err.message}\n`);
+    error(err.message);
     process.exit(1);
   }
 }

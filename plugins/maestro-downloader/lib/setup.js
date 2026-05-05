@@ -11,6 +11,7 @@ import { config as dotenvConfig } from 'dotenv';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { info, error } from './logger.js';
 
 const BASE_URL = 'https://www.bbcmaestro.com';
 const ENV_PATH = join(homedir(), '.claude', 'plugins', 'maestro-downloader', '.env');
@@ -19,7 +20,7 @@ const ENV_PATH = join(homedir(), '.claude', 'plugins', 'maestro-downloader', '.e
 dotenvConfig({ path: ENV_PATH, override: false });
 
 function fail(msg) {
-  process.stderr.write(`Error: ${msg}\n`);
+  error(msg);
   process.exit(1);
 }
 
@@ -37,7 +38,7 @@ async function validateCredentials(email, password) {
     });
     const page = await context.newPage();
 
-    process.stdout.write('Connecting to BBC Maestro...\n');
+    info('Connecting to BBC Maestro...');
     await page.goto(`${BASE_URL}/users/sign_in`, { waitUntil: 'networkidle', timeout: 30000 });
 
     // Step 1: email
@@ -90,7 +91,7 @@ async function validateCredentials(email, password) {
 
 async function main() {
   if (!process.argv.includes('--validate')) {
-    process.stderr.write('Usage: node lib/setup.js --validate\n');
+    error('Usage: node lib/setup.js --validate');
     process.exit(1);
   }
 
@@ -105,7 +106,7 @@ async function main() {
   try {
     const result = await validateCredentials(email, password);
     if (result.success) {
-      process.stdout.write('Login successful. Credentials are valid.\n');
+      info('Login successful. Credentials are valid.');
       process.exit(0);
     } else {
       fail(`Login failed: ${result.error}`);

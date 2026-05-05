@@ -112,8 +112,8 @@
 ## Phase 4: Polish & Deployment
 
 - [ ] User-friendly error messages for common failure modes
-- [ ] Structured logging (debug for segment fetches, info for per-video progress, warn/error for failures)
-- [ ] Register plugin in parent repo's `marketplace.json`
+- [x] Structured logging (debug for segment fetches, info for per-video progress, warn/error for failures)
+- [x] Register plugin in parent repo's `marketplace.json`
 - [ ] Test on macOS and Linux
 
 ---

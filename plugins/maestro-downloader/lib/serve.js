@@ -4,6 +4,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
 import { config as dotenvConfig } from 'dotenv';
+import { info, error } from './logger.js';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_UI_DIR = join(__dir, '..', 'ui');
@@ -21,15 +22,15 @@ async function main() {
 
   const root = process.env.MAESTRO_ROOT?.trim();
   if (!root) {
-    process.stderr.write('Error: MAESTRO_ROOT not set. Run /setup first.\n');
+    error('MAESTRO_ROOT not set. Run /setup first.');
     process.exit(1);
   }
 
   const port = Number(process.env.MAESTRO_PORT ?? 8080);
   const app = createApp(root);
   app.listen(port, () => {
-    process.stdout.write(`Maestro library running at http://localhost:${port}\n`);
-    process.stdout.write(`Press Ctrl+C to stop.\n`);
+    info(`Maestro library running at http://localhost:${port}`);
+    info('Press Ctrl+C to stop.');
   });
 }
 
