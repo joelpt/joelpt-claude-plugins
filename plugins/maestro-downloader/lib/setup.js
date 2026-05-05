@@ -105,10 +105,12 @@ async function main() {
   const email = process.env.MAESTRO_EMAIL?.trim();
   const password = process.env.MAESTRO_PASSWORD?.trim();
   const root = process.env.MAESTRO_ROOT?.trim();
+  const quality = process.env.MAESTRO_QUALITY?.trim();
 
   if (!email) fail('MAESTRO_EMAIL is not set. Run /setup to configure credentials.');
   if (!password) fail('MAESTRO_PASSWORD is not set. Run /setup to configure credentials.');
   if (!root) fail('MAESTRO_ROOT is not set. Run /setup to configure credentials.');
+  if (!quality) fail('MAESTRO_QUALITY is not set. Run /setup to configure quality preference.');
 
   try {
     const result = await validateCredentials(email, password);

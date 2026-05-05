@@ -158,10 +158,11 @@ async function scrapeCoursePage(page, courseUrl) {
     const body = document.body;
     const lessonHrefSet = new Set(uniqueLessons.map(l => l.href));
     const categoryHeadings = new Set();
+    const NAV_HEADING = /explore|browse|all courses|see all/i;
 
     for (const node of body.querySelectorAll('h2, h3, h4')) {
       const text = node.textContent.trim();
-      if (text && text.length < 100) categoryHeadings.add(node);
+      if (text && text.length < 100 && !NAV_HEADING.test(text)) categoryHeadings.add(node);
     }
 
     if (categoryHeadings.size === 0 || uniqueLessons.length === 0) {
@@ -170,6 +171,7 @@ async function scrapeCoursePage(page, courseUrl) {
       const allNodes = [...body.querySelectorAll('*')];
       let currentCatTitle = 'Lessons';
       let currentLessons = [];
+      const assignedHrefs = new Set();
 
       for (const node of allNodes) {
         if (categoryHeadings.has(node)) {
@@ -180,7 +182,8 @@ async function scrapeCoursePage(page, courseUrl) {
           currentCatTitle = node.textContent.trim();
         } else if (node.tagName === 'A') {
           const href = node.href?.split('?')[0].split('#')[0];
-          if (lessonHrefSet.has(href)) {
+          if (lessonHrefSet.has(href) && !assignedHrefs.has(href)) {
+            assignedHrefs.add(href);
             currentLessons.push({ href, text: node.textContent.trim().replace(/\s+/g, ' ') });
           }
         }
