@@ -5,10 +5,13 @@ test-integration:
     node --test tst/integration/*.test.js
 
 run:
-    @echo "Usage: /setup, /fetch-list, /list, /download <course>"
+    @echo 'Usage: /setup, /fetch-list, /list, /download <course>, /serve'
 
 build:
-    @echo "No build step needed (pure Node.js)"
+    @echo 'No build step needed (pure Node.js)'
+
+serve:
+    node lib/serve.js
 
 smoke:
-    @echo "Manual smoke test: /setup → /fetch-list → /list → /download <course>"
+    @echo 'Manual smoke test: /setup -> /fetch-list -> /list -> /download <course> -> /serve'

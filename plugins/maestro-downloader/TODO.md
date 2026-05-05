@@ -91,21 +91,21 @@
 ## Phase 3: UI & Integration
 
 ### HTML UI (`ui/index.html`)
-- [ ] Master course index: read `index.json`, render course tiles with completion %
-- [ ] Query param routing:
-  - [ ] `?course=<slug>` → course detail (categories + video list with download status)
-  - [ ] `?video=<path>` → video player with HTML5 `<video>` element (`.webm`)
-- [ ] Navigation: master index → course view → video player
-- [ ] Styling: clean, responsive layout (tablet-friendly)
+- [x] Master course index: read `index.json`, render course tiles with completion %
+- [x] Query param routing:
+  - [x] `?course=<slug>` → course detail (categories + video list with download status)
+  - [x] `?video=<path>` → video player with HTML5 `<video>` element (`.webm`)
+- [x] Navigation: master index → course view → video player
+- [x] Styling: clean, responsive layout (tablet-friendly)
 
 ### Local Server
-- [ ] Simple Express server serving `<root>/` with correct MIME type for `.webm` (`video/webm`)
+- [x] Simple Express server (`lib/serve.js`) serving `<root>/` with correct MIME type for `.webm`; `/serve` command added
 
 ### Integration Testing
-- [ ] End-to-end: `/setup` → `/fetch-list` → `/list` → `/download` single video → open in browser
-- [ ] Test resume: interrupt `/download`, rerun, verify only incomplete videos are downloaded
-- [ ] Test `/fetch-list` additive merge: manually add a fake video to `index.json`, rerun, verify it's preserved
-- [ ] Error handling: invalid credentials, network timeout, disk full
+- [ ] End-to-end: `/setup` → `/fetch-list` → `/list` → `/download` single video → open in browser (requires live BBC Maestro account; manual smoke only)
+- [ ] Test resume: interrupt `/download`, rerun, verify only incomplete videos are downloaded (live account)
+- [ ] Test `/fetch-list` additive merge: manually add a fake video to `index.json`, rerun, verify it's preserved (live account)
+- [ ] Error handling: invalid credentials, network timeout, disk full (live account)
 
 ---
 
@@ -115,6 +115,14 @@
 - [ ] Structured logging (debug for segment fetches, info for per-video progress, warn/error for failures)
 - [ ] Register plugin in parent repo's `marketplace.json`
 - [ ] Test on macOS and Linux
+
+---
+
+## Future (far-future, no timeline)
+
+- [ ] Convert from a Claude Code plugin to a standalone locally-installed project (npm package or
+  single binary). The plugin architecture was a convenient way to bootstrap, but the tool has no
+  real dependency on the Claude Code runtime and would be more portable as a regular CLI.
 
 ---
 
