@@ -69,13 +69,20 @@ async function validateCredentials(email, password) {
       }
     }
 
-    const postLoginUrl = page.url();
-    const loginSuccess =
-      !postLoginUrl.includes('sign_in') &&
-      !postLoginUrl.includes('sign-in') &&
-      !postLoginUrl.includes('/login');
+    let postLoginUrl = page.url();
+    let isSignInPage =
+      postLoginUrl.includes('sign_in') ||
+      postLoginUrl.includes('sign-in') ||
+      postLoginUrl.includes('/login');
 
-    if (!loginSuccess) {
+    if (isSignInPage) {
+      info('reCAPTCHA detected; navigating directly to /courses (auth tokens already set server-side)');
+      await page.goto(`${BASE_URL}/courses`, { waitUntil: 'networkidle', timeout: 30000 });
+      postLoginUrl = page.url();
+      isSignInPage = postLoginUrl.includes('sign_in') || postLoginUrl.includes('sign-in');
+    }
+
+    if (isSignInPage) {
       const errMsg = await page.evaluate(() => {
         const el = document.querySelector('.alert, .flash, [class*="error"], [class*="alert"]');
         return el?.textContent.trim() ?? null;

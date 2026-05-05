@@ -19,18 +19,34 @@ function jitter(minMs, maxMs) {
   return Math.floor(minMs + Math.random() * (maxMs - minMs));
 }
 
+let globalAdaptiveDelayMs = 2000;
+
 async function withBackoff(label, fn) {
   const delays = [10000, 20000, 40000, 80000];
   for (let attempt = 0; attempt <= delays.length; attempt++) {
-    const result = await fn();
-    if (result !== 'RATE_LIMITED') return result;
-    if (attempt === delays.length) {
-      warn(`${label}: rate limited after ${delays.length + 1} attempts, skipping`);
-      return null;
+    try {
+      const result = await fn();
+      if (result !== 'RATE_LIMITED') return result;
+      if (attempt === delays.length) {
+        warn(`${label}: rate limited after ${delays.length + 1} attempts, skipping`);
+        return null;
+      }
+      const wait = delays[attempt];
+      warn(`${label}: rate limited (429/503), waiting ${wait / 1000}s...`);
+      await sleep(wait);
+    } catch (err) {
+      if (err.message.includes('Timeout') || err.message.includes('timeout')) {
+        if (attempt === delays.length) {
+          warn(`${label}: timeout after ${delays.length + 1} attempts, skipping`);
+          return null;
+        }
+        const wait = delays[attempt];
+        warn(`${label}: timeout, waiting ${wait / 1000}s before retry...`);
+        await sleep(wait);
+      } else {
+        throw err;
+      }
     }
-    const wait = delays[attempt];
-    warn(`${label}: rate limited (429/503), waiting ${wait / 1000}s...`);
-    await sleep(wait);
   }
 }
 
@@ -76,12 +92,18 @@ async function login(page, email, password) {
   }
 
   const url = page.url();
-  const ok = !url.includes('sign_in') && !url.includes('sign-in') && !url.includes('/login');
-  if (!ok) throw new Error(`Login failed — landed at ${url}`);
+  const isSignInPage = url.includes('sign_in') || url.includes('sign-in') || url.includes('/login');
+  if (isSignInPage) {
+    debug('reCAPTCHA detected; navigating directly to /courses (auth tokens already set server-side)');
+    await page.goto(`${BASE_URL}/courses`, { waitUntil: 'networkidle', timeout: 30000 });
+    const finalUrl = page.url();
+    const stillBlocked = finalUrl.includes('sign_in') || finalUrl.includes('sign-in');
+    if (stillBlocked) throw new Error(`Authentication failed after CAPTCHA bypass — still at ${finalUrl}`);
+  }
 }
 
 async function getCourseUrls(page) {
-  const resp = await page.goto(`${BASE_URL}/courses`, { waitUntil: 'networkidle', timeout: 30000 });
+  const resp = await page.goto(`${BASE_URL}/courses`, { waitUntil: 'networkidle', timeout: 60000 });
   if (resp?.status() === 429 || resp?.status() === 503) return 'RATE_LIMITED';
 
   return page.evaluate((base) => {
@@ -100,8 +122,12 @@ async function getCourseUrls(page) {
 }
 
 async function scrapeCoursePage(page, courseUrl) {
-  const resp = await page.goto(courseUrl, { waitUntil: 'networkidle', timeout: 30000 });
-  if (resp?.status() === 429 || resp?.status() === 503) return 'RATE_LIMITED';
+  const resp = await page.goto(courseUrl, { waitUntil: 'networkidle', timeout: 60000 });
+  if (resp?.status() === 429 || resp?.status() === 503) {
+    globalAdaptiveDelayMs += 30000;
+    warn(`⚠ 429 HIT | Global delay now: ${(globalAdaptiveDelayMs / 1000).toFixed(1)}s`);
+    return 'RATE_LIMITED';
+  }
 
   return page.evaluate((courseUrl) => {
     const title =
@@ -129,11 +155,7 @@ async function scrapeCoursePage(page, courseUrl) {
     }
 
     const categories = [];
-    let currentCat = null;
-
     const body = document.body;
-    const walker = document.createTreeWalker(body, NodeFilter.SHOW_ELEMENT);
-
     const lessonHrefSet = new Set(uniqueLessons.map(l => l.href));
     const categoryHeadings = new Set();
 
@@ -143,13 +165,9 @@ async function scrapeCoursePage(page, courseUrl) {
     }
 
     if (categoryHeadings.size === 0 || uniqueLessons.length === 0) {
-      categories.push({
-        title: 'Lessons',
-        lessonLinks: uniqueLessons,
-      });
+      categories.push({ title: 'Lessons', lessonLinks: uniqueLessons });
     } else {
-      const bodyEl = document.body;
-      const allNodes = [...bodyEl.querySelectorAll('*')];
+      const allNodes = [...body.querySelectorAll('*')];
       let currentCatTitle = 'Lessons';
       let currentLessons = [];
 
@@ -185,13 +203,18 @@ async function getLessonManifest(page, lessonUrl) {
   const manifestPromise = page.waitForResponse(
     (r) => {
       const url = r.url();
-      return url.includes('videos.cdn.bbcmaestro.com') && url.endsWith('.m3u8') && !url.includes('_1080') && !url.includes('_720') && !url.includes('_360') && !url.includes('_2160');
+      return url.includes('videos.cdn.bbcmaestro.com') && url.endsWith('.m3u8') &&
+        !url.includes('_1080') && !url.includes('_720') && !url.includes('_360') && !url.includes('_2160');
     },
     { timeout: 20000 },
   ).catch(() => null);
 
   const resp = await page.goto(lessonUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
-  if (resp?.status() === 429 || resp?.status() === 503) return 'RATE_LIMITED';
+  if (resp?.status() === 429 || resp?.status() === 503) {
+    globalAdaptiveDelayMs += 30000;
+    warn(`⚠ 429 HIT | Global delay now: ${(globalAdaptiveDelayMs / 1000).toFixed(1)}s`);
+    return 'RATE_LIMITED';
+  }
 
   const manifestResp = await manifestPromise;
   manifestUrl = manifestResp?.url() ?? null;
@@ -213,7 +236,7 @@ async function getLessonManifest(page, lessonUrl) {
   return manifestUrl;
 }
 
-async function crawl(email, password, root) {
+async function crawl(email, password, root, resumeMode) {
   const { browser, context } = await launchBrowser();
   const page = await context.newPage();
 
@@ -228,23 +251,55 @@ async function crawl(email, password, root) {
     }
     info(`Found ${courseUrls.length} course(s).`);
 
+    const indexPath = join(root, 'index.json');
     const existingIndex = (() => {
-      const indexPath = join(root, 'index.json');
       if (!existsSync(indexPath)) return { courses: [] };
       try { return JSON.parse(readFileSync(indexPath, 'utf8')); } catch { return { courses: [] }; }
     })();
 
-    const freshCourses = [];
-    let newVideoCount = 0;
+    let accumulatedCourses = existingIndex.courses ?? [];
 
-    for (let ci = 0; ci < courseUrls.length; ci++) {
-      const courseUrl = courseUrls[ci];
-      info(`[${ci + 1}/${courseUrls.length}] Scraping course: ${courseUrl}`);
+    const existingSlugs = new Set(
+      resumeMode
+        ? accumulatedCourses.filter(c => c.categories.every(cat => cat.videos.every(v => v.manifestUrl !== null))).map(c => c.slug)
+        : [],
+    );
 
-      const courseData = await withBackoff(courseUrl, () => scrapeCoursePage(page, courseUrl));
+    const pendingUrls = courseUrls.filter((url) => {
+      const slugParts = url.replace(/.*\/courses\//, '').split('/');
+      const slug = slugParts.slice(0, 2).join('/');
+      return !existingSlugs.has(slug);
+    });
+
+    if (resumeMode) {
+      info(`Resume mode: ${existingSlugs.size} complete, ${pendingUrls.length} pending`);
+    }
+
+    const startingVideoUrls = new Set(
+      (existingIndex.courses ?? []).flatMap(c => c.categories.flatMap(cat => cat.videos.map(v => v.lessonUrl))),
+    );
+
+    info(`\nSerial crawl with adaptive throttling. Initial delay: ${(globalAdaptiveDelayMs / 1000).toFixed(1)}s`);
+
+    let lastStatusTime = Date.now();
+    for (let ci = 0; ci < pendingUrls.length; ci++) {
+      const courseUrl = pendingUrls[ci];
+      const globalIdx = existingSlugs.size + ci + 1;
+      const label = `[${globalIdx}/${courseUrls.length}]`;
+
+      // Status every 60 seconds
+      const now = Date.now();
+      if (now - lastStatusTime >= 60000) {
+        info(`[STATUS] Course ${globalIdx}/${courseUrls.length} | Delay: ${(globalAdaptiveDelayMs / 1000).toFixed(1)}s`);
+        lastStatusTime = now;
+      }
+
+      info(`${label} Scraping: ${courseUrl}`);
+
+      const courseData = await withBackoff(label, () => scrapeCoursePage(page, courseUrl));
       if (!courseData) {
-        warn(`Skipping course ${courseUrl} — could not load page`);
-        if (ci < courseUrls.length - 1) await sleep(jitter(3000, 6000));
+        warn(`${label}: skipped`);
+        await sleep(jitter(globalAdaptiveDelayMs, globalAdaptiveDelayMs + 1000));
         continue;
       }
 
@@ -256,13 +311,12 @@ async function crawl(email, password, root) {
 
         for (let li = 0; li < cat.lessonLinks.length; li++) {
           const lesson = cat.lessonLinks[li];
-          const lessonLabel = `${courseData.slug} / ${cat.title} / lesson ${li + 1}`;
-          info(`  Lesson ${li + 1}/${cat.lessonLinks.length}: ${lesson.href}`);
+          debug(`${label} Lesson ${li + 1}/${cat.lessonLinks.length}`);
 
-          const manifestUrl = await withBackoff(lessonLabel, () => getLessonManifest(page, lesson.href));
+          const manifestUrl = await withBackoff(label, () => getLessonManifest(page, lesson.href));
 
           if (!manifestUrl) {
-            warn(`  Could not capture manifest for ${lesson.href}`);
+            warn(`${label}: no manifest for lesson ${li + 1}`);
           }
 
           videos.push({
@@ -272,42 +326,50 @@ async function crawl(email, password, root) {
             manifestUrl: manifestUrl ?? null,
           });
 
+          // Write partial progress after each lesson
+          const partialCourse = {
+            slug: courseData.slug,
+            title: courseData.title,
+            instructor: courseData.instructor,
+            courseUrl: courseData.courseUrl,
+            categories: [...categories, { title: cat.title, videos }],
+          };
+          const partialAccumulated = mergeCourses(accumulatedCourses, [partialCourse]);
+          await atomicWriteJson(indexPath, {
+            lastFetched: new Date().toISOString(),
+            courses: partialAccumulated,
+          });
+
           if (li < cat.lessonLinks.length - 1) {
-            await sleep(jitter(1500, 3500));
+            await sleep(jitter(globalAdaptiveDelayMs, globalAdaptiveDelayMs + 1000));
           }
         }
 
         categories.push({ title: cat.title, videos });
       }
 
-      freshCourses.push({
+      const newCourse = {
         slug: courseData.slug,
         title: courseData.title,
         instructor: courseData.instructor,
         courseUrl: courseData.courseUrl,
         categories,
+      };
+      accumulatedCourses = mergeCourses(accumulatedCourses, [newCourse]);
+      await atomicWriteJson(indexPath, {
+        lastFetched: new Date().toISOString(),
+        courses: accumulatedCourses,
       });
+      debug(`Persisted: ${accumulatedCourses.length} courses (course complete)`);
 
-      if (ci < courseUrls.length - 1) await sleep(jitter(3000, 6000));
+      if (ci < pendingUrls.length - 1) {
+        await sleep(jitter(globalAdaptiveDelayMs, globalAdaptiveDelayMs + 1000));
+      }
     }
 
-    const mergedCourses = mergeCourses(existingIndex.courses ?? [], freshCourses);
-
-    const existingVideoUrls = new Set(
-      (existingIndex.courses ?? []).flatMap(c => c.categories.flatMap(cat => cat.videos.map(v => v.lessonUrl))),
-    );
-    const allMergedVideos = mergedCourses.flatMap(c => c.categories.flatMap(cat => cat.videos));
-    newVideoCount = allMergedVideos.filter(v => !existingVideoUrls.has(v.lessonUrl)).length;
-
-    const indexData = {
-      lastFetched: new Date().toISOString(),
-      courses: mergedCourses,
-    };
-
-    await atomicWriteJson(join(root, 'index.json'), indexData);
-
-    const totalVideos = allMergedVideos.length;
-    info(`\nCatalogue updated: ${mergedCourses.length} courses, ${totalVideos} total videos (${newVideoCount} new since last fetch).`);
+    const allMergedVideos = accumulatedCourses.flatMap(c => c.categories.flatMap(cat => cat.videos));
+    const newVideoCount = allMergedVideos.filter(v => !startingVideoUrls.has(v.lessonUrl)).length;
+    info(`\n✓ Complete: ${accumulatedCourses.length} courses, ${allMergedVideos.length} videos (${newVideoCount} new)`);
     info('Run /list to browse, or /download <course> to start downloading.');
   } finally {
     await context.close().catch(() => {});
@@ -319,13 +381,14 @@ async function main() {
   const email = process.env.MAESTRO_EMAIL?.trim();
   const password = process.env.MAESTRO_PASSWORD?.trim();
   const root = process.env.MAESTRO_ROOT?.trim();
+  const resumeMode = process.argv.includes('--resume');
 
   if (!email) { error('MAESTRO_EMAIL not set. Run /setup first.'); process.exit(1); }
   if (!password) { error('MAESTRO_PASSWORD not set. Run /setup first.'); process.exit(1); }
   if (!root) { error('MAESTRO_ROOT not set. Run /setup first.'); process.exit(1); }
 
   try {
-    await crawl(email, password, root);
+    await crawl(email, password, root, resumeMode);
   } catch (err) {
     error(err.message);
     process.exit(1);
