@@ -11,6 +11,8 @@ import {
   derive1080pUrl,
   deriveOutputPath,
   sanitizeFilename,
+  buildFfmpegArgs,
+  getEncoderSettings,
 } from '../lib/index-utils.js';
 
 // ── mergeCourses ────────────────────────────────────────────────────────────
@@ -352,4 +354,46 @@ test('sanitizeFilename: preserves spaces and hyphens', () => {
 test('sanitizeFilename: handles slash in name', () => {
   const result = sanitizeFilename('Q&A/Session');
   assert.ok(!result.includes('/'));
+});
+
+// ── buildFfmpegArgs ─────────────────────────────────────────────────────────
+
+test('buildFfmpegArgs: includes reconnect flags before -i to prevent CDN segment hangs', () => {
+  const settings = getEncoderSettings('speech', false);
+  const args = buildFfmpegArgs('https://cdn.example.com/video_1080.m3u8', '/out/video.webm', settings);
+  const iIdx = args.indexOf('-i');
+  const preamble = args.slice(0, iIdx);
+
+  assert.ok(iIdx > 0, '-i flag must be present');
+
+  const timeoutIdx = preamble.indexOf('-timeout');
+  assert.ok(timeoutIdx !== -1, '-timeout flag must appear before -i');
+  assert.equal(preamble[timeoutIdx + 1], '30000000', '-timeout must be 30000000 microseconds');
+
+  const reconnectIdx = preamble.indexOf('-reconnect');
+  assert.ok(reconnectIdx !== -1, '-reconnect flag must appear before -i');
+  assert.equal(preamble[reconnectIdx + 1], '1');
+
+  const reconnectStreamedIdx = preamble.indexOf('-reconnect_streamed');
+  assert.ok(reconnectStreamedIdx !== -1, '-reconnect_streamed flag must appear before -i');
+  assert.equal(preamble[reconnectStreamedIdx + 1], '1');
+
+  const reconnectDelayIdx = preamble.indexOf('-reconnect_delay_max');
+  assert.ok(reconnectDelayIdx !== -1, '-reconnect_delay_max flag must appear before -i');
+  assert.equal(preamble[reconnectDelayIdx + 1], '5');
+});
+
+test('buildFfmpegArgs: output path is last arg', () => {
+  const settings = getEncoderSettings('speech', false);
+  const args = buildFfmpegArgs('https://cdn.example.com/video_1080.m3u8', '/out/video.webm', settings);
+  assert.equal(args[args.length - 1], '/out/video.webm');
+});
+
+test('buildFfmpegArgs: includes protocol_whitelist for HLS over HTTPS', () => {
+  const settings = getEncoderSettings('speech', false);
+  const args = buildFfmpegArgs('https://cdn.example.com/video_1080.m3u8', '/out/video.webm', settings);
+  const pwIdx = args.indexOf('-protocol_whitelist');
+  assert.ok(pwIdx !== -1);
+  assert.ok(args[pwIdx + 1].includes('https'));
+  assert.ok(args[pwIdx + 1].includes('crypto'));
 });
