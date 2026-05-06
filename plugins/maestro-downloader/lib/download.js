@@ -13,19 +13,27 @@ dotenvConfig({ path: ENV_PATH, override: false });
 
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
+const FFMPEG_TIMEOUT_MS = 20 * 60 * 1000; // 20 min — covers any legitimate video length
+
 async function runFfmpeg(inputUrl, outputPath, settings) {
   return new Promise((resolve) => {
     let stderrBuf = '';
     const args = buildFfmpegArgs(inputUrl, outputPath, settings);
     debug(`ffmpeg ${args.join(' ')}`);
     const proc = spawn('ffmpeg', args, { stdio: ['ignore', 'inherit', 'pipe'] });
+
+    const watchdog = setTimeout(() => {
+      warn(`ffmpeg exceeded ${FFMPEG_TIMEOUT_MS / 60000} min timeout — killing`);
+      proc.kill('SIGKILL');
+    }, FFMPEG_TIMEOUT_MS);
+
     proc.stderr.on('data', (d) => {
       const chunk = d.toString();
       stderrBuf = (stderrBuf + chunk).slice(-4096);
       process.stderr.write(chunk);
     });
-    proc.on('close', (code) => resolve({ code, stderr: stderrBuf }));
-    proc.on('error', (err) => resolve({ code: -1, stderr: err.message }));
+    proc.on('close', (code) => { clearTimeout(watchdog); resolve({ code, stderr: stderrBuf }); });
+    proc.on('error', (err) => { clearTimeout(watchdog); resolve({ code: -1, stderr: err.message }); });
   });
 }
 
@@ -33,18 +41,24 @@ export function isRateLimitError(stderr) {
   return /server returned (429|503)|too many requests|service unavailable/i.test(stderr);
 }
 
+export function isNetworkError(stderr) {
+  return /timed out|connection reset|connection refused|broken pipe/i.test(stderr);
+}
+
 async function downloadVideoWithBackoff(inputUrl, outputPath, settings) {
-  const delays = [10000, 20000, 40000];
+  const delays = [5000, 10000, 20000, 40000, 60000];
   for (let attempt = 0; attempt <= delays.length; attempt++) {
     const { code, stderr } = await runFfmpeg(inputUrl, outputPath, settings);
     if (code === 0) return true;
-    if (!isRateLimitError(stderr) || attempt === delays.length) {
+    const retriable = isRateLimitError(stderr) || isNetworkError(stderr);
+    if (!retriable || attempt === delays.length) {
       warn(`ffmpeg failed (exit ${code})`);
       return false;
     }
     const wait = delays[attempt];
-    debug(`rate-limit backoff: waiting ${wait / 1000}s (attempt ${attempt + 1})`);
-    info(`Rate limited — waiting ${wait / 1000}s before retry ${attempt + 1}...`);
+    const reason = isRateLimitError(stderr) ? 'Rate limited' : 'Network error';
+    debug(`backoff: waiting ${wait / 1000}s (attempt ${attempt + 1})`);
+    info(`${reason} — waiting ${wait / 1000}s before retry ${attempt + 1}...`);
     await sleep(wait);
   }
   return false;
