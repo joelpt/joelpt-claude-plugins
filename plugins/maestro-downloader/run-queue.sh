@@ -2,6 +2,17 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
+LOCKFILE="/tmp/maestro-run-queue.lock"
+if [[ -f "$LOCKFILE" ]]; then
+  EXISTING_PID=$(cat "$LOCKFILE")
+  if kill -0 "$EXISTING_PID" 2>/dev/null; then
+    echo "run-queue.sh already running (PID $EXISTING_PID). Exiting." >&2
+    exit 1
+  fi
+fi
+echo $$ > "$LOCKFILE"
+trap 'rm -f "$LOCKFILE"' EXIT INT TERM
+
 LOG="/Users/joelthor/xfer/maestro/queue.log"
 
 log() { echo "[$(date '+%H:%M:%S')] $*" | tee -a "$LOG"; }
@@ -53,9 +64,10 @@ for SLUG in "${SLUGS[@]}"; do
     log "✓ Completed ${SLUG}"
     DONE=$((DONE+1))
   else
-    log "✗ FAILED ${SLUG} (exit $?)"
+    log "✗ FAILED ${SLUG}"
     FAILED=$((FAILED+1))
   fi
+  node lib/reconcile.js >> "${LOG}" 2>&1 && log "  reconcile: ok"
 done
 
 log "Queue complete. ${DONE} succeeded, ${FAILED} failed."

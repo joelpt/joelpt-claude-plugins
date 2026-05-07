@@ -199,9 +199,9 @@ async function downloadVideoWithBackoff(inputUrl, outputPath, settings) {
       stallFrames.push(stallFrame);
     }
 
-    // After 2 consistent stalls at the same segment, skip the bad segment immediately
+    // After 3 consistent stalls at the same segment, skip the bad segment immediately
     // rather than burning all remaining retries on the same dead CDN segment.
-    if (stallFrames.length >= 2 && isConsistentStall(stallFrames)) {
+    if (stallFrames.length >= 3 && isConsistentStall(stallFrames)) {
       if (lastSegmentUrl) return attemptSegmentSkip(inputUrl, outputPath, settings, lastSegmentUrl);
     }
 
