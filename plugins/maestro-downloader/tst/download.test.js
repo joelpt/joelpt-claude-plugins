@@ -555,3 +555,23 @@ test('runCourse: returns {downloaded:0, failed:0} immediately when signal alread
   const result = await runCourse('test/course', root, indexPath, { signal: ac.signal });
   assert.deepEqual(result, { downloaded: 0, failed: 0 });
 });
+
+// ── normalizeCpu ──────────────────────────────────────────────────────────────
+
+import { normalizeCpu } from '../lib/download.js';
+
+test('normalizeCpu: divides raw per-core % by core count', () => {
+  assert.equal(normalizeCpu(685, 8), 86);
+});
+
+test('normalizeCpu: caps at 100 when all cores maxed', () => {
+  assert.equal(normalizeCpu(850, 8), 100);
+});
+
+test('normalizeCpu: single core 100% stays 100', () => {
+  assert.equal(normalizeCpu(100, 1), 100);
+});
+
+test('normalizeCpu: rounds fractional result', () => {
+  assert.equal(normalizeCpu(50, 8), 6);
+});

@@ -2,7 +2,7 @@
 import { spawn, execFile } from 'node:child_process';
 import { readFileSync, writeFileSync, mkdirSync, existsSync, statSync, mkdtempSync, rmSync, readdirSync, unlinkSync, renameSync } from 'node:fs';
 import { join, dirname } from 'node:path';
-import { homedir, tmpdir } from 'node:os';
+import { homedir, tmpdir, cpus } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { config as dotenvConfig } from 'dotenv';
 import { deriveManifestUrl, deriveOutputPath, atomicWriteJson, getEncoderSettings, buildFfmpegArgs, profileForContentType, isFileComplete } from './index-utils.js';
@@ -99,11 +99,17 @@ function sweepDir(dir) {
 
 // ── CPU polling ──────────────────────────────────────────────────────────────
 
+const NUM_CPUS = cpus().length;
+
+export function normalizeCpu(rawPct, numCpus) {
+  return Math.min(100, Math.round(rawPct / numCpus));
+}
+
 function pollCpu(pid, callback) {
   execFile('ps', ['-o', '%cpu=', '-p', String(pid)], (err, stdout) => {
     if (err) return;
-    const pct = parseFloat(stdout.trim());
-    if (!isNaN(pct)) callback(pct);
+    const raw = parseFloat(stdout.trim());
+    if (!isNaN(raw)) callback(normalizeCpu(raw, NUM_CPUS));
   });
 }
 
