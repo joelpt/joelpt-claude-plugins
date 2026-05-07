@@ -3,6 +3,9 @@ import { join } from 'node:path';
 
 const STALE_DAYS = 30;
 
+export function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+export function jitter(minMs, maxMs) { return Math.floor(minMs + Math.random() * (maxMs - minMs)); }
+
 // Minimum file size to consider a .webm complete. Below this the file is
 // treated as a partial download (killed ffmpeg, disk-full abort, etc.).
 export const MIN_COMPLETE_FILE_BYTES = 1_000_000;
@@ -203,7 +206,9 @@ export function hasCompletionCues(filePath) {
       else if (vintFirst & 0x20) vintLen = 3;
       else vintLen = 4;
       const contentStart = pos + 4 + vintLen;
-      if (contentStart < buf.length) return true;
+      // Require content byte to be a valid EBML ID start (>= 0x10 covers all
+      // 4-byte, 3-byte, 2-byte, and 1-byte class IDs; rejects corrupt/empty content).
+      if (contentStart < buf.length && buf[contentStart] >= 0x10) return true;
       searchFrom = pos + 1;
     }
     return false;

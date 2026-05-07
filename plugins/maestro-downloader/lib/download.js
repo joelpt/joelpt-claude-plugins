@@ -5,7 +5,7 @@ import { join, dirname } from 'node:path';
 import { homedir, tmpdir, cpus } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { config as dotenvConfig } from 'dotenv';
-import { deriveManifestUrl, deriveOutputPath, atomicWriteJson, getEncoderSettings, buildFfmpegArgs, profileForContentType, isFileComplete } from './index-utils.js';
+import { deriveManifestUrl, deriveOutputPath, atomicWriteJson, getEncoderSettings, buildFfmpegArgs, profileForContentType, isFileComplete, sleep, jitter } from './index-utils.js';
 import { info as _info, warn as _warn, debug, error } from './logger.js';
 
 const ENV_PATH = join(homedir(), '.claude', 'plugins', 'maestro-downloader', '.env');
@@ -13,11 +13,10 @@ dotenvConfig({ path: ENV_PATH, override: false });
 
 const debugEnabled = process.env.DEBUG === 'true' || process.argv.includes('--debug');
 
-function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
 const FFMPEG_TIMEOUT_MS = 20 * 60 * 1000;
 const FRAME_STALL_MS = 45_000;
-const MIN_STALL_FRAME = 500;
+const MIN_STALL_FRAME = 100;
 const MIN_SKIP_OUTPUT_BYTES = 1_000_000;
 const PROGRESS_INTERVAL_MS = 1_000;
 
@@ -115,6 +114,8 @@ function sweepDir(dir) {
 // ── Bandwidth rate ───────────────────────────────────────────────────────────
 
 const RATE_WINDOW_MS = 5_000;
+const INTER_VIDEO_DELAY_MIN_MS = 15_000;
+const INTER_VIDEO_DELAY_MAX_MS = 45_000;
 
 // samples: [{ ts: number, bytes: number }], sorted oldest-first.
 // Returns rolling average MB/s (encode output rate) across the full span,
@@ -268,7 +269,7 @@ async function runFfmpeg(inputUrl, outputPath, settings) {
         if (progress.speed != null) lastSpeed = progress.speed;
       }
 
-      if (debugEnabled) process.stderr.write(chunk);
+      if (debugEnabled && !isProgressLine(chunk)) process.stderr.write(chunk);
     });
 
     proc.on('close', (code) => {
@@ -287,6 +288,12 @@ async function runFfmpeg(inputUrl, outputPath, settings) {
       resolve({ code: -1, stderr: err.message, killedForStall, stallFrame: null });
     });
   });
+}
+
+// Returns true for ffmpeg's \r-terminated progress lines (frame=, fps=, time=, ...).
+// Used to suppress these from debug forwarding — they conflict with our styled progress bar.
+export function isProgressLine(chunk) {
+  return /frame=\s*\d+/.test(chunk);
 }
 
 export function isRateLimitError(stderr) {
@@ -504,7 +511,8 @@ export async function runCourse(courseSlug, root, indexPath, { profile = null, a
   let failed = 0;
   const sessionStart = Date.now();
 
-  for (const video of pending) {
+  for (let i = 0; i < pending.length; i++) {
+    const video = pending[i];
     if (signal?.aborted) break;
 
     if (!video.manifestUrl) {
@@ -536,6 +544,13 @@ export async function runCourse(courseSlug, root, indexPath, { profile = null, a
     } else {
       failed++;
       info(`  ✗ Failed`);
+    }
+
+    const isLastVideo = i === pending.length - 1;
+    if (!isLastVideo && !signal?.aborted) {
+      const delay = jitter(INTER_VIDEO_DELAY_MIN_MS, INTER_VIDEO_DELAY_MAX_MS);
+      info(`  Cooling down ${Math.round(delay / 1000)}s before next video...`);
+      await sleep(delay);
     }
   }
 

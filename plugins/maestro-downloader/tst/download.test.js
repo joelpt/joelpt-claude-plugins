@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { readFileSync, writeFileSync, mkdirSync, existsSync, mkdtempSync } from 'node:fs';
 
-import { isRateLimitError, isNetworkError, recordCompletion, parseLastFrame, extractBadSegmentUrl, patchManifest, isConsistentStall, parseTimeSeconds, parseDurationSec, parseFfmpegProgress, fmtSize, fmtEta, fmtElapsed, needsDownload, sweepPartFiles, derivePartPath, runCourse, computeRateMBs } from '../lib/download.js';
+import { isRateLimitError, isNetworkError, recordCompletion, parseLastFrame, extractBadSegmentUrl, patchManifest, isConsistentStall, parseTimeSeconds, parseDurationSec, parseFfmpegProgress, fmtSize, fmtEta, fmtElapsed, needsDownload, sweepPartFiles, derivePartPath, runCourse, computeRateMBs, isProgressLine } from '../lib/download.js';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -666,6 +666,23 @@ test('finalizePart: refuses to rename a sub-1MB .part file (under-threshold part
 
   assert.equal(ok, false);
   assert.equal(existsSync(outputPath), false);
+});
+
+// ── isProgressLine ────────────────────────────────────────────────────────────
+
+test('isProgressLine: returns true for a raw ffmpeg progress chunk', () => {
+  const line = '\rframe=  454 fps=8.4 q=30.0 size=    1280KiB time=00:00:18.16 bitrate= 577.4kbits/s speed=0.337x';
+  assert.equal(isProgressLine(line), true);
+});
+
+test('isProgressLine: returns false for codec/stream info lines', () => {
+  assert.equal(isProgressLine("Input #0, hls, from 'https://cdn.example.com/video.m3u8':"), false);
+  assert.equal(isProgressLine('Stream #0:0: Video: h264, yuv420p, 1920x1080, 25 fps'), false);
+  assert.equal(isProgressLine('Error: Connection timed out'), false);
+});
+
+test('isProgressLine: returns false for empty string', () => {
+  assert.equal(isProgressLine(''), false);
 });
 
 test('finalizePart: accepts Cues element with CRC-32 (0xBF) first content byte (ffmpeg v8.1+ format)', () => {

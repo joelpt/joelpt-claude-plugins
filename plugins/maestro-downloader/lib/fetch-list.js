@@ -5,7 +5,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { mergeCourses, atomicWriteJson } from './index-utils.js';
+import { mergeCourses, atomicWriteJson, sleep, jitter } from './index-utils.js';
 import { info, warn, debug, error } from './logger.js';
 
 const BASE_URL = 'https://www.bbcmaestro.com';
@@ -13,11 +13,6 @@ const ENV_PATH = join(homedir(), '.claude', 'plugins', 'maestro-downloader', '.e
 
 dotenvConfig({ path: ENV_PATH, override: false });
 
-function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
-
-function jitter(minMs, maxMs) {
-  return Math.floor(minMs + Math.random() * (maxMs - minMs));
-}
 
 let globalAdaptiveDelayMs = 2000;
 
