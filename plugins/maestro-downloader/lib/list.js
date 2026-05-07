@@ -11,19 +11,59 @@ const ENV_PATH = join(homedir(), '.claude', 'plugins', 'maestro-downloader', '.e
 dotenvConfig({ path: ENV_PATH, override: false });
 
 export function formatCourseList(courses) {
-  const lines = [];
-  for (const course of courses) {
-    const allVideos = course.categories.flatMap(c => c.videos);
-    const totalVideos = allVideos.length;
-    const completedVideos = allVideos.filter(v => v.completed).length;
-    lines.push(`\n${course.title} — ${course.instructor}`);
-    lines.push(`  ${course.slug}  [${completedVideos}/${totalVideos} downloaded]`);
-    for (const cat of course.categories) {
-      const catCompleted = cat.videos.filter(v => v.completed).length;
-      lines.push(`    ${cat.title}: ${catCompleted}/${cat.videos.length} videos`);
-    }
-  }
-  return lines.join('\n');
+  if (courses.length === 0) return '';
+
+  const rows = courses
+    .map(course => {
+      const allVideos = course.categories.flatMap(c => c.videos);
+      const total = allVideos.length;
+      const completed = allVideos.filter(v => v.completed).length;
+      return {
+        category: course.category ?? '',
+        title: course.title,
+        author: course.instructor,
+        type: course.contentType ?? '',
+        lessons: total,
+        done: completed === total && total > 0 ? 'Yes' : 'No',
+      };
+    })
+    .sort((a, b) => a.category.localeCompare(b.category) || a.title.localeCompare(b.title));
+
+  const trunc = (s, len) => s.length > len ? s.slice(0, len - 1) + '…' : s;
+  const pad = (s, len) => s.padEnd(len);
+
+  const W = {
+    category: Math.max(8, ...rows.map(r => r.category.length)),
+    title: Math.min(45, Math.max(5, ...rows.map(r => r.title.length))),
+    author: Math.min(24, Math.max(6, ...rows.map(r => r.author.length))),
+    type: Math.max(4, ...rows.map(r => r.type.length)),
+    lessons: 7,
+    done: 4,
+  };
+
+  const header = [
+    pad('Category', W.category),
+    pad('Title', W.title),
+    pad('Author', W.author),
+    pad('Type', W.type),
+    'Lessons'.padStart(W.lessons),
+    'Done',
+  ].join('  ');
+
+  const sep = [W.category, W.title, W.author, W.type, W.lessons, W.done]
+    .map(n => '-'.repeat(n))
+    .join('  ');
+
+  const dataRows = rows.map(r => [
+    pad(trunc(r.category, W.category), W.category),
+    pad(trunc(r.title, W.title), W.title),
+    pad(trunc(r.author, W.author), W.author),
+    pad(r.type, W.type),
+    String(r.lessons).padStart(W.lessons),
+    r.done,
+  ].join('  '));
+
+  return [header, sep, ...dataRows].join('\n');
 }
 
 async function main() {
