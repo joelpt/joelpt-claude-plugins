@@ -1,0 +1,10 @@
+{
+  "name": "deep-research",
+  "displayName": "Deep Research",
+  "description": "13-agent academic research pipeline: literature reviews, systematic reviews, meta-analysis, fact-checking, and Socratic-guided research exploration. Thin wrapper over Imbad0202/academic-research-skills.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Joel Thornton",
+    "email": "joelpt@gmail.com"
+  }
+}

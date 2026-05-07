@@ -45,6 +45,11 @@
       "name": "plugin-dev",
       "source": "./plugins/plugin-dev",
       "description": "Claude Code plugin development skills: hook, command, skill, agent, MCP, settings, structure. Slim wrappers over pinned upstream from anthropics/claude-plugins-public."
+    },
+    {
+      "name": "deep-research",
+      "source": "./plugins/deep-research",
+      "description": "13-agent academic research pipeline: literature reviews, systematic reviews, meta-analysis, fact-checking, and Socratic-guided research exploration. Thin wrapper over Imbad0202/academic-research-skills."
     }
   ]
 }
