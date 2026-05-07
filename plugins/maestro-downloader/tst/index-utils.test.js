@@ -359,6 +359,10 @@ test('sanitizeFilename: handles slash in name', () => {
   assert.ok(!result.includes('/'));
 });
 
+test('sanitizeFilename: strips ampersand', () => {
+  assert.equal(sanitizeFilename('Grooming & positive nail trims'), 'Grooming positive nail trims');
+});
+
 // ── buildFfmpegArgs ─────────────────────────────────────────────────────────
 
 test('buildFfmpegArgs: includes reconnect flags before -i to prevent CDN segment hangs', () => {
