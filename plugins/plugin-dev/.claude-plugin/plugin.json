@@ -1,6 +1,6 @@
 {
   "name": "plugin-dev",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Claude Code plugin development skills (hook, command, skill, agent, MCP, settings, structure). Slim wrappers over anthropics/claude-plugins-public.",
   "author": {
     "name": "Joel Thornton",

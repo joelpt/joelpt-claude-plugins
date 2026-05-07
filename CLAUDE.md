@@ -11,6 +11,7 @@ Pushed to `https://github.com/joelpt/claude-plugins` (private).
 - Each plugin directory must contain `.claude-plugin/plugin.json`. Per-plugin `marketplace.json` files are forbidden — they conflict with the monorepo-level one.
 - Plugin source paths in `marketplace.json` are relative (`./plugins/<name>`), never absolute or git URLs. Cross-repo `source` is allowed by Claude Code but defeats the point of the monorepo.
 - Don't commit `node_modules/`, `.venv/`, `__pycache__/`, `.pytest_cache/`, `.ruff_cache/`, or per-project index dirs (`.search-rag/`, `.lance-rag/`).
+- **Always bump `plugin.json#version` (patch minimum) when any plugin content changes.** The marketplace cache is keyed by version number — it will not re-fetch a version it has already downloaded. Without a version bump, `claude plugin marketplace update` silently serves the stale cache.
 
 ## After committing changes — making them live
 
@@ -43,6 +44,7 @@ If `GITHUB_TOKEN` (or `GH_TOKEN`) is set in the user's env with `repo` scope, th
 
 ```bash
 cd ~/code/claude-plugins
+# Bump version in plugins/<name>/.claude-plugin/plugin.json (patch minimum)
 git add plugins/<name>
 git commit -m "<plugin>: <change>"
 git push
@@ -69,12 +71,15 @@ The plugin's *advertised* name (what users type in `@joelpt-claude-plugins`) com
 
 | Directory | `plugin.json#name` |
 |---|---|
+| `clickup` | `clickup` |
+| `deep-research` | `deep-research` |
+| `maestro-downloader` | `maestro-downloader` |
+| `plugin-dev` | `plugin-dev` |
 | `search-rag` | `search-rag` |
 | `tao` | `tao` |
-| `clickup` | `clickup` |
-| `wip` | `wip` |
 | `the-plan` | `the-plan` |
 | `tip-of-the-day` | `tip-of-the-day` |
+| `wip` | `wip` |
 
 ## History note
 

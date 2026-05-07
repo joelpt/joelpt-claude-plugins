@@ -396,6 +396,15 @@ test('buildFfmpegArgs: output path is last arg', () => {
   assert.equal(args[args.length - 1], '/out/video.webm');
 });
 
+test('buildFfmpegArgs: -f matroska precedes output path so .part extension does not cause EINVAL', () => {
+  const settings = getEncoderSettings('speech', false);
+  const args = buildFfmpegArgs('https://cdn.example.com/video_1080.m3u8', '/out/video.webm.part', settings);
+  const outIdx = args.indexOf('/out/video.webm.part');
+  assert.ok(outIdx > 0, 'output path must be present');
+  assert.equal(args[outIdx - 2], '-f', '-f flag must immediately precede output path');
+  assert.equal(args[outIdx - 1], 'matroska', 'format must be matroska');
+});
+
 test('buildFfmpegArgs: includes protocol_whitelist for HLS over HTTPS', () => {
   const settings = getEncoderSettings('speech', false);
   const args = buildFfmpegArgs('https://cdn.example.com/video_1080.m3u8', '/out/video.webm', settings);

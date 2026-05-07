@@ -1,6 +1,6 @@
 {
   "name": "search-rag",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Local-first LanceDB RAG over project documentation. Indexes files matched by .search-rag.json globs and serves semantic search to Claude.",
   "author": {
     "name": "Joel Thornton",

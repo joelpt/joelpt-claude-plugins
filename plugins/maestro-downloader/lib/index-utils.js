@@ -164,7 +164,7 @@ export function buildFfmpegArgs(inputUrl, outputPath, settings) {
   if (settings.svtav1Params) {
     args.push('-svtav1-params', settings.svtav1Params);
   }
-  args.push('-c:a', 'libopus', '-b:a', settings.audioBitrate, outputPath);
+  args.push('-c:a', 'libopus', '-b:a', settings.audioBitrate, '-f', 'matroska', outputPath);
   return args;
 }
 
