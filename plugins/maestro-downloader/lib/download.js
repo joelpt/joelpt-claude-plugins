@@ -19,7 +19,7 @@ const FFMPEG_TIMEOUT_MS = 20 * 60 * 1000;
 const FRAME_STALL_MS = 45_000;
 const MIN_STALL_FRAME = 500;
 const MIN_SKIP_OUTPUT_BYTES = 1_000_000;
-const NON_TTY_PROGRESS_INTERVAL_MS = 30_000;
+const PROGRESS_INTERVAL_MS = 1_000;
 
 // ── Progress helpers (pure, exported for tests) ───────────────────────────────
 
@@ -149,11 +149,20 @@ async function runFfmpeg(inputUrl, outputPath, settings) {
     let killedForStall = false;
     let lastSegmentUrl = null;
     let totalDurationSec = null;
-    let lastNonTtyReport = Date.now();
+    let lastTimeSec = null;
+    let lastSizeKb = null;
+    let lastFps = null;
+    let lastSpeed = null;
 
     const args = buildFfmpegArgs(inputUrl, outputPath, settings);
     debug(`nice -n 20 ffmpeg ${args.join(' ')}`);
     const proc = spawn('nice', ['-n', '20', 'ffmpeg', ...args], { stdio: ['ignore', 'inherit', 'pipe'] });
+
+    drawProgress(null, null, null, null, null);
+    const progressInterval = setInterval(
+      () => drawProgress(lastTimeSec, totalDurationSec, lastSizeKb, lastFps, lastSpeed),
+      PROGRESS_INTERVAL_MS,
+    );
 
     const watchdog = setTimeout(() => {
       warn(`ffmpeg exceeded ${FFMPEG_TIMEOUT_MS / 60000} min timeout — killing`);
@@ -188,23 +197,10 @@ async function runFfmpeg(inputUrl, outputPath, settings) {
 
       const progress = parseFfmpegProgress(chunk);
       if (progress?.timeSec !== null && progress?.timeSec >= 0) {
-        if (process.stdout.isTTY) {
-          drawProgress(progress.timeSec, totalDurationSec, progress.sizeKb, progress.fps, progress.speed);
-        } else {
-          const now = Date.now();
-          if (now - lastNonTtyReport >= NON_TTY_PROGRESS_INTERVAL_MS) {
-            lastNonTtyReport = now;
-            const parts = [];
-            if (totalDurationSec && totalDurationSec > 0) {
-              parts.push(`${Math.round(progress.timeSec / totalDurationSec * 100)}%`);
-            }
-            if (progress.fps && progress.fps > 0) parts.push(`fps=${Math.round(progress.fps)}`);
-            if (progress.sizeKb) parts.push(fmtSize(progress.sizeKb));
-            const eta = fmtEta(progress.timeSec, totalDurationSec, progress.speed);
-            if (eta) parts.push(eta);
-            if (parts.length) _info(`  [${parts.join('  ')}]`);
-          }
-        }
+        lastTimeSec = progress.timeSec;
+        if (progress.sizeKb != null) lastSizeKb = progress.sizeKb;
+        if (progress.fps != null) lastFps = progress.fps;
+        if (progress.speed != null) lastSpeed = progress.speed;
       }
 
       if (debugEnabled) process.stderr.write(chunk);
@@ -213,6 +209,7 @@ async function runFfmpeg(inputUrl, outputPath, settings) {
     proc.on('close', (code) => {
       clearTimeout(watchdog);
       clearInterval(frameWatchdog);
+      clearInterval(progressInterval);
       clearProgress();
       resolve({ code, stderr: stderrBuf, killedForStall, stallFrame: killedForStall ? lastFrame : null, lastSegmentUrl });
     });
@@ -220,6 +217,7 @@ async function runFfmpeg(inputUrl, outputPath, settings) {
     proc.on('error', (err) => {
       clearTimeout(watchdog);
       clearInterval(frameWatchdog);
+      clearInterval(progressInterval);
       clearProgress();
       resolve({ code: -1, stderr: err.message, killedForStall, stallFrame: null });
     });
