@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { readFileSync, writeFileSync, mkdirSync, existsSync, mkdtempSync } from 'node:fs';
 
-import { isRateLimitError, isNetworkError, recordCompletion, parseLastFrame, extractBadSegmentUrl, patchManifest, isConsistentStall, parseTimeSeconds, parseDurationSec, parseFfmpegProgress, fmtSize, fmtEta, fmtElapsed, needsDownload, sweepPartFiles, derivePartPath } from '../lib/download.js';
+import { isRateLimitError, isNetworkError, recordCompletion, parseLastFrame, extractBadSegmentUrl, patchManifest, isConsistentStall, parseTimeSeconds, parseDurationSec, parseFfmpegProgress, fmtSize, fmtEta, fmtElapsed, needsDownload, sweepPartFiles, derivePartPath, runCourse } from '../lib/download.js';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -525,4 +525,33 @@ test('sweepPartFiles: returns 0 when no .part files exist', () => {
 test('sweepPartFiles: returns 0 when courses dir does not exist', () => {
   const root = mkdtempSync(join(tmpdir(), 'maestro-sweep-'));
   assert.equal(sweepPartFiles(root), 0);
+});
+
+// ── runCourse ─────────────────────────────────────────────────────────────────
+
+test('runCourse: returns {downloaded:0, failed:0} when course slug not found', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'maestro-rc-'));
+  const indexPath = join(root, 'index.json');
+  writeFileSync(indexPath, JSON.stringify({ courses: [] }));
+  const result = await runCourse('no/such-course', root, indexPath);
+  assert.deepEqual(result, { downloaded: 0, failed: 0 });
+});
+
+test('runCourse: returns {downloaded:0, failed:0} immediately when signal already aborted', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'maestro-rc-'));
+  const indexPath = join(root, 'index.json');
+  writeFileSync(indexPath, JSON.stringify({
+    courses: [{
+      slug: 'test/course', title: 'T', instructor: 'I', courseUrl: '',
+      categories: [{
+        title: 'A',
+        videos: [{ index: 1, title: 'V', lessonUrl: '', manifestUrl: 'https://cdn/v.m3u8',
+                   completed: false, downloadedAt: null, localPath: null }],
+      }],
+    }],
+  }));
+  const ac = new AbortController();
+  ac.abort();
+  const result = await runCourse('test/course', root, indexPath, { signal: ac.signal });
+  assert.deepEqual(result, { downloaded: 0, failed: 0 });
 });

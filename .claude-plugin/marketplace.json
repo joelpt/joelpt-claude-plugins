@@ -50,6 +50,11 @@
       "name": "deep-research",
       "source": "./plugins/deep-research",
       "description": "13-agent academic research pipeline: literature reviews, systematic reviews, meta-analysis, fact-checking, and Socratic-guided research exploration. Thin wrapper over Imbad0202/academic-research-skills."
+    },
+    {
+      "name": "commit-commands",
+      "source": "./plugins/commit-commands",
+      "description": "Atomic git commits with code review + simplify pre-flight, enforcing project git rules. Replaces claude-plugins-official commit-commands."
     }
   ]
 }

@@ -382,48 +382,16 @@ async function downloadVideoWithBackoff(inputUrl, outputPath, settings) {
   return false;
 }
 
-async function main() {
-  const root = process.env.MAESTRO_ROOT?.trim();
-  const qualityEnv = process.env.MAESTRO_QUALITY?.trim();
-  if (!root) { error('MAESTRO_ROOT not set. Run /setup first.'); process.exit(1); }
-  if (!qualityEnv) { error('MAESTRO_QUALITY not set. Run /setup first.'); process.exit(1); }
-
-  const args = process.argv.slice(2);
-  const profileIdx = args.indexOf('--profile');
-  const profile = profileIdx !== -1 ? args[profileIdx + 1] : 'speech';
-  const archive = args.includes('--archive');
-  const courseSlug = args
-    .filter((a, i) => !a.startsWith('--') && args[i - 1] !== '--profile')
-    .join(' ').trim();
-
-  const validProfiles = ['speech', 'music', 'lean', 'visual'];
-  if (!validProfiles.includes(profile)) {
-    error(`Invalid --profile: ${profile}. Must be one of: ${validProfiles.join(', ')}`);
-    process.exit(1);
-  }
-
-  if (!courseSlug) {
-    error(
-      'Usage: node lib/download.js <course-slug> [--profile speech|music|lean] [--archive]\n' +
-      'Example: node lib/download.js mark-ronson/music-production --profile music\n' +
-      'Example: node lib/download.js oliver-burkeman/time-management --profile lean\n' +
-      'Example: node lib/download.js jojo-moyes/writing-love-stories --archive'
-    );
-    process.exit(1);
-  }
-
-  const indexPath = join(root, 'index.json');
-  if (!existsSync(indexPath)) {
-    error('No index.json found. Run /fetch-list first.');
-    process.exit(1);
-  }
-
+// Runs all pending downloads for one course. Caller is responsible for sweeping
+// .part files and reconciling index.json before/after. signal is an optional
+// AbortSignal; when aborted the current video finishes and the loop exits.
+export async function runCourse(courseSlug, root, indexPath, { profile = null, archive = false, signal = null } = {}) {
   let indexData;
   try {
     indexData = JSON.parse(readFileSync(indexPath, 'utf8'));
   } catch {
     error('index.json is corrupted. Run /fetch-list to rebuild it.');
-    process.exit(1);
+    return { downloaded: 0, failed: 0 };
   }
 
   const course = (indexData.courses ?? []).find(
@@ -432,16 +400,11 @@ async function main() {
   if (!course) {
     const available = (indexData.courses ?? []).map(c => c.slug).join('\n  ');
     error(`Course not found: "${courseSlug}"\nAvailable courses:\n  ${available}`);
-    process.exit(1);
+    return { downloaded: 0, failed: 0 };
   }
 
-  const effectiveProfile = profileIdx !== -1
-    ? profile
-    : profileForContentType(course.contentType);
+  const effectiveProfile = profile ?? profileForContentType(course.contentType);
   const encoderSettings = getEncoderSettings(effectiveProfile, archive);
-
-  const swept = sweepPartFiles(root);
-  if (swept > 0) info(`Swept ${swept} orphaned .part file(s) from previous interrupted download(s)`);
 
   const allVideos = course.categories.flatMap(cat =>
     cat.videos.map(v => ({ ...v, categoryTitle: cat.title })),
@@ -459,7 +422,7 @@ async function main() {
 
   if (pending.length === 0) {
     info('All videos confirmed on disk.');
-    process.exit(0);
+    return { downloaded: 0, failed: 0 };
   }
 
   let downloaded = 0;
@@ -467,6 +430,8 @@ async function main() {
   const sessionStart = Date.now();
 
   for (const video of pending) {
+    if (signal?.aborted) break;
+
     if (!video.manifestUrl) {
       info(`\n[${downloaded + failed + 1}/${pending.length}] ${video.index}. ${video.title} — no manifest URL (run /fetch-list)`);
       failed++;
@@ -500,6 +465,49 @@ async function main() {
   }
 
   info(`\nComplete: ${downloaded} downloaded, ${failed} failed  [${fmtElapsed(Date.now() - sessionStart)}]`);
+  return { downloaded, failed };
+}
+
+async function main() {
+  const root = process.env.MAESTRO_ROOT?.trim();
+  const qualityEnv = process.env.MAESTRO_QUALITY?.trim();
+  if (!root) { error('MAESTRO_ROOT not set. Run /setup first.'); process.exit(1); }
+  if (!qualityEnv) { error('MAESTRO_QUALITY not set. Run /setup first.'); process.exit(1); }
+
+  const args = process.argv.slice(2);
+  const profileIdx = args.indexOf('--profile');
+  const profile = profileIdx !== -1 ? args[profileIdx + 1] : null;
+  const archive = args.includes('--archive');
+  const courseSlug = args
+    .filter((a, i) => !a.startsWith('--') && args[i - 1] !== '--profile')
+    .join(' ').trim();
+
+  const validProfiles = ['speech', 'music', 'lean', 'visual'];
+  if (profile !== null && !validProfiles.includes(profile)) {
+    error(`Invalid --profile: ${profile}. Must be one of: ${validProfiles.join(', ')}`);
+    process.exit(1);
+  }
+
+  if (!courseSlug) {
+    error(
+      'Usage: node lib/download.js <course-slug> [--profile speech|music|lean] [--archive]\n' +
+      'Example: node lib/download.js mark-ronson/music-production --profile music\n' +
+      'Example: node lib/download.js oliver-burkeman/time-management --profile lean\n' +
+      'Example: node lib/download.js jojo-moyes/writing-love-stories --archive'
+    );
+    process.exit(1);
+  }
+
+  const indexPath = join(root, 'index.json');
+  if (!existsSync(indexPath)) {
+    error('No index.json found. Run /fetch-list first.');
+    process.exit(1);
+  }
+
+  const swept = sweepPartFiles(root);
+  if (swept > 0) info(`Swept ${swept} orphaned .part file(s) from previous interrupted download(s)`);
+
+  await runCourse(courseSlug, root, indexPath, { profile, archive });
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) main();
