@@ -2,9 +2,9 @@ import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { readFileSync, writeFileSync, mkdtempSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, mkdtempSync } from 'node:fs';
 
-import { isRateLimitError, isNetworkError, recordCompletion, parseLastFrame, extractBadSegmentUrl, patchManifest, isConsistentStall, parseTimeSeconds, parseDurationSec, parseFfmpegProgress, fmtSize, fmtEta, fmtElapsed, needsDownload } from '../lib/download.js';
+import { isRateLimitError, isNetworkError, recordCompletion, parseLastFrame, extractBadSegmentUrl, patchManifest, isConsistentStall, parseTimeSeconds, parseDurationSec, parseFfmpegProgress, fmtSize, fmtEta, fmtElapsed, needsDownload, sweepPartFiles, derivePartPath } from '../lib/download.js';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -490,4 +490,39 @@ test('needsDownload: returns true when completed and file is large but lacks Cue
   const tmpFile = join(tmpDir, 'partial.webm');
   writeFileSync(tmpFile, Buffer.alloc(5_000_000)); // 5 MB, no Cues
   assert.equal(needsDownload({ completed: true, localPath: tmpFile }), true);
+});
+
+// ── derivePartPath ────────────────────────────────────────────────────────────
+
+test('derivePartPath: appends .part to the output path', () => {
+  assert.equal(derivePartPath('/downloads/courses/foo/bar.webm'), '/downloads/courses/foo/bar.webm.part');
+});
+
+// ── sweepPartFiles ────────────────────────────────────────────────────────────
+
+test('sweepPartFiles: deletes all .part files under courses dir and returns count', () => {
+  const root = mkdtempSync(join(tmpdir(), 'maestro-sweep-'));
+  const coursesDir = join(root, 'courses', 'alice', 'course-a', 'videos', 'Intro');
+  mkdirSync(coursesDir, { recursive: true });
+  writeFileSync(join(coursesDir, '1-Lesson.webm.part'), 'partial');
+  writeFileSync(join(coursesDir, '2-Lesson.webm.part'), 'partial');
+  writeFileSync(join(coursesDir, '3-Lesson.webm'), 'complete'); // should not be deleted
+
+  const count = sweepPartFiles(root);
+
+  assert.equal(count, 2);
+  assert.equal(existsSync(join(coursesDir, '1-Lesson.webm.part')), false);
+  assert.equal(existsSync(join(coursesDir, '2-Lesson.webm.part')), false);
+  assert.equal(existsSync(join(coursesDir, '3-Lesson.webm')), true);
+});
+
+test('sweepPartFiles: returns 0 when no .part files exist', () => {
+  const root = mkdtempSync(join(tmpdir(), 'maestro-sweep-'));
+  mkdirSync(join(root, 'courses'), { recursive: true });
+  assert.equal(sweepPartFiles(root), 0);
+});
+
+test('sweepPartFiles: returns 0 when courses dir does not exist', () => {
+  const root = mkdtempSync(join(tmpdir(), 'maestro-sweep-'));
+  assert.equal(sweepPartFiles(root), 0);
 });

@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process';
-import { readFileSync, writeFileSync, mkdirSync, existsSync, statSync, mkdtempSync, rmSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, statSync, mkdtempSync, rmSync, readdirSync, unlinkSync, renameSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { config as dotenvConfig } from 'dotenv';
-import { deriveManifestUrl, deriveOutputPath, atomicWriteJson, getEncoderSettings, buildFfmpegArgs, profileForContentType, MIN_COMPLETE_FILE_BYTES } from './index-utils.js';
+import { deriveManifestUrl, deriveOutputPath, atomicWriteJson, getEncoderSettings, buildFfmpegArgs, profileForContentType, isFileComplete } from './index-utils.js';
 import { info as _info, warn as _warn, debug, error } from './logger.js';
 
 const ENV_PATH = join(homedir(), '.claude', 'plugins', 'maestro-downloader', '.env');
@@ -69,17 +69,32 @@ export function fmtElapsed(ms) {
 }
 
 // Returns true if the video needs to be (re-)downloaded.
-// Trusts index.json's completed flag only when the file on disk meets the
-// minimum size; partial downloads from killed ffmpeg runs pass size > 0 but
-// will be under the threshold.
 export function needsDownload(video) {
   if (!video.completed) return true;
-  if (!video.localPath) return true;
-  try {
-    return statSync(video.localPath).size < MIN_COMPLETE_FILE_BYTES;
-  } catch {
-    return true;
+  return !isFileComplete(video.localPath);
+}
+
+export function derivePartPath(outputPath) {
+  return outputPath + '.part';
+}
+
+export function sweepPartFiles(root) {
+  const coursesDir = join(root, 'courses');
+  if (!existsSync(coursesDir)) return 0;
+  return sweepDir(coursesDir);
+}
+
+function sweepDir(dir) {
+  let count = 0;
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      count += sweepDir(full);
+    } else if (entry.name.endsWith('.part')) {
+      try { unlinkSync(full); count++; } catch { /* ignore races */ }
+    }
   }
+  return count;
 }
 
 // ── TTY progress bar (non-exported, display-only) ────────────────────────────
@@ -289,7 +304,7 @@ async function fetchManifest(url) {
   }
 }
 
-async function attemptSegmentSkip(variantUrl, outputPath, settings, badSegmentUrl) {
+async function attemptSegmentSkip(variantUrl, partPath, outputPath, settings, badSegmentUrl) {
   const segName = badSegmentUrl.split('/').pop();
   info(`  [patch] Bad segment: ${segName} — fetching manifest to skip it`);
   const manifestText = await fetchManifest(variantUrl);
@@ -307,16 +322,17 @@ async function attemptSegmentSkip(variantUrl, outputPath, settings, badSegmentUr
   const tmpManifest = join(tmpDir, 'playlist.m3u8');
   try {
     writeFileSync(tmpManifest, patched);
-    const { code } = await runFfmpeg(`file://${tmpManifest}`, outputPath, settings);
+    const { code } = await runFfmpeg(`file://${tmpManifest}`, partPath, settings);
     if (code !== 0) {
       warn(`  [patch] Re-encode exited ${code} — video failed`);
       return false;
     }
-    const { size } = statSync(outputPath);
+    const { size } = statSync(partPath);
     if (size < MIN_SKIP_OUTPUT_BYTES) {
       warn(`  [patch] Output only ${fmtSize(Math.round(size / 1024))} — likely connectivity loss, discarding`);
       return false;
     }
+    renameSync(partPath, outputPath);
     info(`  [patch] Succeeded — ${segName} omitted from final file`);
     return true;
   } finally {
@@ -325,6 +341,7 @@ async function attemptSegmentSkip(variantUrl, outputPath, settings, badSegmentUr
 }
 
 async function downloadVideoWithBackoff(inputUrl, outputPath, settings) {
+  const partPath = derivePartPath(outputPath);
   const delays = [5000, 10000, 20000, 40000, 60000];
   const stallFrames = [];
   let lastStderr = '';
@@ -334,8 +351,11 @@ async function downloadVideoWithBackoff(inputUrl, outputPath, settings) {
     if (attempt > 0) {
       info(`  [attempt ${attempt + 1}/${delays.length + 1}] retrying...`);
     }
-    const { code, stderr, killedForStall, stallFrame, lastSegmentUrl: segUrl } = await runFfmpeg(inputUrl, outputPath, settings);
-    if (code === 0) return true;
+    const { code, stderr, killedForStall, stallFrame, lastSegmentUrl: segUrl } = await runFfmpeg(inputUrl, partPath, settings);
+    if (code === 0) {
+      renameSync(partPath, outputPath);
+      return true;
+    }
     lastStderr = stderr;
     if (segUrl) lastSegmentUrl = segUrl;
 
@@ -344,7 +364,7 @@ async function downloadVideoWithBackoff(inputUrl, outputPath, settings) {
     }
 
     if (stallFrames.length >= 3 && isConsistentStall(stallFrames)) {
-      if (lastSegmentUrl) return attemptSegmentSkip(inputUrl, outputPath, settings, lastSegmentUrl);
+      if (lastSegmentUrl) return attemptSegmentSkip(inputUrl, partPath, outputPath, settings, lastSegmentUrl);
     }
 
     const retriable = isRateLimitError(stderr) || isNetworkError(stderr) || killedForStall;
@@ -422,6 +442,9 @@ async function main() {
     : profileForContentType(course.contentType);
   const encoderSettings = getEncoderSettings(effectiveProfile, archive);
 
+  const swept = sweepPartFiles(root);
+  if (swept > 0) info(`Swept ${swept} orphaned .part file(s) from previous interrupted download(s)`);
+
   const allVideos = course.categories.flatMap(cat =>
     cat.videos.map(v => ({ ...v, categoryTitle: cat.title })),
   );
@@ -455,7 +478,7 @@ async function main() {
     const inputUrl = deriveManifestUrl(video.manifestUrl, encoderSettings.resolution);
     const outputPath = deriveOutputPath(root, course.slug, video.categoryTitle, video.index, video.title);
 
-    const redownloadTag = video.completed ? '  [re-download: file missing or undersized]' : '';
+    const redownloadTag = video.completed ? '  [re-download: file missing or incomplete]' : '';
     info(`\n[${downloaded + failed + 1}/${pending.length}] ${video.index}. ${video.title}${redownloadTag}`);
     info(`  Category: ${video.categoryTitle}`);
     info(`  Output:   ${outputPath}`);
