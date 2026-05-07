@@ -91,7 +91,7 @@ export function getEncoderSettings(profile, archive = false) {
     speech: {
       resolution: '720p',
       crf: 35,
-      preset: archive ? 3 : 4,
+      preset: archive ? 3 : 6,
       audioBitrate: '64k',
       gopSize: 300,
       svtav1Params: baseParams,
@@ -101,7 +101,7 @@ export function getEncoderSettings(profile, archive = false) {
     music: {
       resolution: '1080p',
       crf: 30,
-      preset: archive ? 3 : 4,
+      preset: archive ? 3 : 6,
       audioBitrate: '128k',
       gopSize: 120,
       svtav1Params: baseParams,
@@ -111,7 +111,7 @@ export function getEncoderSettings(profile, archive = false) {
     visual: {
       resolution: '1080p',
       crf: 31,
-      preset: archive ? 3 : 4,
+      preset: archive ? 3 : 6,
       audioBitrate: '96k',
       gopSize: 200,
       svtav1Params: baseParams,
@@ -121,7 +121,7 @@ export function getEncoderSettings(profile, archive = false) {
     lean: {
       resolution: '360p',
       crf: 42,
-      preset: archive ? 3 : 4,
+      preset: archive ? 3 : 6,
       audioBitrate: '48k',
       gopSize: 600,
       svtav1Params: baseParams,
