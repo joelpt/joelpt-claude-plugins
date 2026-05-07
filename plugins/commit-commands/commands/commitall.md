@@ -1,62 +1,43 @@
 ---
 name: commitall
 description: Commit ALL uncommitted changes as semantically atomic conventional commits with code review and simplify pre-flight. Ignore session-only restriction.
+allowed-tools: Bash(git status:*), Bash(git diff:*), Bash(git log:*), Bash(git branch:*), Bash(git add:*), Bash(git commit:*)
 ---
 
 ## Context
 
 - Git status: !`git status`
-- All unstaged changes: !`git diff`
-- Staged changes: !`git diff --staged`
-- Recent commits (for message style): !`git log --oneline -10`
-- Current branch: !`git branch --show-current`
+- All changes: !`git diff`
+- Staged: !`git diff --staged`
+- Recent commits: !`git log --oneline -10`
+- Branch: !`git branch --show-current`
 
-## Phase 0: Review (MANDATORY, in order)
+## Pre-flight (MANDATORY)
 
-1. Invoke `Agent` with `subagent_type: "superpowers:code-reviewer"` — show full findings to user.
-2. Auto-fix all Critical/Important issues.
-3. Invoke `simplify` skill on changed files (pass 1).
-4. If simplify changed anything: re-run code reviewer, fix new Critical/Important, run `simplify` again (pass 2).
-   If still changing after pass 2 — STOP and explain; do not commit.
-5. `AskUserQuestion`: "Found N minor issues and M suggestions. Fix any before committing, or proceed?"
+1. `Agent(subagent_type: "superpowers:code-reviewer")` — show full findings; auto-fix Critical/Important.
+2. `Skill(simplify)` on all changed files (pass 1). If changes: re-run code reviewer, auto-fix, simplify again (pass 2).
+   If still changing after pass 2 — **STOP**, explain to user; do not commit.
+3. `AskUserQuestion`: "Found N minor issues and M suggestions. Fix any before committing, or proceed?"
 
-## Phase 1: Git Rules (IMMUTABLE)
+## Git Rules (IMMUTABLE)
 
-**Banned:**
+**BANNED:** `git add .`/`-A`/`--all` · `commit -a` · `--no-verify` · AI attribution · emojis · Co-Authored-By · links in messages.
 
-- `git add .` / `git add -A` / `git add --all` / `git commit -a`
-- AI attribution, emojis, Co-Authored-By, links in commit messages
-- `--no-verify`
+**REQUIRED:** stage by name · `git diff --staged` before every commit · every changed file lands in a commit (tree clean) · message = WHY not WHAT.
 
-**Required:**
+**Atomic grouping:** one logical change per commit.
+Group if split would break the build (new required param + callsite → same commit).
+Split independent changes. Use `git add -p` for partial-file commits.
 
-- Stage files individually by name
-- `git diff --staged` before every commit
-- Every changed file must end up in some commit — tree must be clean after
-- Message: focus on WHY, not WHAT
+**Format:** `<type>: <Subject ≤50 chars, imperative mood, capitalized, no period>`
+Types: `feat` · `fix` · `docs` · `style` · `refactor` · `perf` · `test` · `chore`
+Optional body: wrap at 72 chars.
 
-**Atomic grouping:** each commit = one logical change.
-Group changes that would break the build if split (new required param + its callsite belong together).
-Split independent changes (docs vs feature). Use `git add -p` for partial-file commits when one file has unrelated changes.
+## Commit Loop
 
-## Phase 2: Commit Message Format
-
-```text
-<type>: <Subject in imperative mood, ≤50 chars>
-
-[optional body — wrap at 72 chars]
-```
-
-Types: `feat` / `fix` / `docs` / `style` / `refactor` / `perf` / `test` / `chore`
-
-No trailing period. Capitalize subject. No AI attribution in body.
-
-## Phase 3: Commit Loop
-
-For each atomic group:
+Repeat until `git status` is clean:
 
 1. `git add <specific files>`
 2. `git diff --staged` — verify
 3. `git commit -m "type: Subject"`
 4. `git log -1` — confirm
-5. Repeat until `git status` is clean

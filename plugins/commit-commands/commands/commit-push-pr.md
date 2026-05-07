@@ -1,6 +1,7 @@
 ---
 name: commit-push-pr
 description: Commit current changes, push branch, and open a GitHub PR — with code review and simplify pre-flight.
+allowed-tools: Bash(git status:*), Bash(git diff:*), Bash(git log:*), Bash(git branch:*), Bash(git add:*), Bash(git commit:*), Bash(git push:*), Bash(git checkout:*), Bash(gh pr create:*)
 ---
 
 ## Context
