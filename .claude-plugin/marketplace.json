@@ -40,6 +40,11 @@
       "name": "maestro-downloader",
       "source": "./plugins/maestro-downloader",
       "description": "Downloads BBC Maestro courses for offline viewing with AV1 video optimization. Provides /setup, /list, and /download commands."
+    },
+    {
+      "name": "plugin-dev",
+      "source": "./plugins/plugin-dev",
+      "description": "Claude Code plugin development skills: hook, command, skill, agent, MCP, settings, structure. Slim wrappers over pinned upstream from anthropics/claude-plugins-public."
     }
   ]
 }
