@@ -1,5 +1,5 @@
 ---
-description: Print plan health: active wedge, approval queue depth, recent log entries, open questions count, last review dates.
+description: "Print plan health: active wedge, approval queue depth, recent log entries, open questions count, last review dates."
 ---
 
 # /plan-status
