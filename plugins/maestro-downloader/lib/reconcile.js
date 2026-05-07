@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -10,25 +10,35 @@ import { info, warn } from './logger.js';
 const ENV_PATH = join(homedir(), '.claude', 'plugins', 'maestro-downloader', '.env');
 dotenvConfig({ path: ENV_PATH, override: false });
 
-// Returns { backfilled, alreadyComplete, partialReset, missing } counts per course
+// Returns counts AND per-item details for problem children:
+//   backfilledItems:    [{ courseSlug, categoryTitle, videoIndex, videoTitle, path }]
+//   partialResetItems:  [{ courseSlug, categoryTitle, videoIndex, videoTitle, path, reason }]
+//                       reason is 'truncated' (file present, no Cues) or 'missing' (localPath gone).
 export function reconcileCourse(course, root) {
-  let backfilled = 0;
   let alreadyComplete = 0;
-  let partialReset = 0;
   let missing = 0;
+  const backfilledItems = [];
+  const partialResetItems = [];
 
   for (const cat of course.categories) {
     for (const video of cat.videos) {
       const expectedPath = deriveOutputPath(root, course.slug, cat.title, video.index, video.title);
+      const meta = {
+        courseSlug: course.slug,
+        categoryTitle: cat.title,
+        videoIndex: video.index,
+        videoTitle: video.title,
+      };
 
       if (video.completed) {
         if (isFileComplete(video.localPath)) {
           alreadyComplete++;
         } else {
+          const reason = video.localPath && existsSync(video.localPath) ? 'truncated' : 'missing';
+          partialResetItems.push({ ...meta, path: video.localPath ?? expectedPath, reason });
           video.completed = false;
           video.downloadedAt = null;
           video.localPath = null;
-          partialReset++;
         }
         continue;
       }
@@ -37,14 +47,45 @@ export function reconcileCourse(course, root) {
         video.completed = true;
         video.downloadedAt = new Date().toISOString();
         video.localPath = expectedPath;
-        backfilled++;
+        backfilledItems.push({ ...meta, path: expectedPath });
       } else {
         missing++;
       }
     }
   }
 
-  return { backfilled, alreadyComplete, partialReset, missing };
+  return {
+    backfilled: backfilledItems.length,
+    alreadyComplete,
+    partialReset: partialResetItems.length,
+    missing,
+    backfilledItems,
+    partialResetItems,
+  };
+}
+
+// Walks the index post-reconcile and deletes any .webm at the expected path
+// where the index says completed=false AND the file lacks a Cues trailer.
+// These are leftovers from earlier runs whose ffmpeg exited 0 on a truncated
+// output (pre-finalizePart bug) — they would otherwise sit unused until the
+// next successful re-encode overwrites them. Returns deleted count + paths.
+export function sweepOrphanedTruncatedWebms(indexData, root) {
+  const deletedPaths = [];
+  for (const course of (indexData.courses ?? [])) {
+    for (const cat of (course.categories ?? [])) {
+      for (const video of (cat.videos ?? [])) {
+        if (video.completed) continue;
+        const expectedPath = deriveOutputPath(root, course.slug, cat.title, video.index, video.title);
+        if (existsSync(expectedPath) && !isFileComplete(expectedPath)) {
+          try {
+            unlinkSync(expectedPath);
+            deletedPaths.push(expectedPath);
+          } catch { /* ignore races */ }
+        }
+      }
+    }
+  }
+  return { deleted: deletedPaths.length, deletedPaths };
 }
 
 async function main() {
@@ -71,13 +112,17 @@ async function main() {
   let totalMissing = 0;
 
   for (const course of (indexData.courses ?? [])) {
-    const { backfilled, alreadyComplete, partialReset, missing } = reconcileCourse(course, root);
+    const { backfilled, alreadyComplete, partialReset, missing, backfilledItems, partialResetItems } = reconcileCourse(course, root);
     totalBackfilled += backfilled;
     totalAlready += alreadyComplete;
     totalPartialReset += partialReset;
     totalMissing += missing;
-    if (backfilled > 0) info(`${course.slug}: backfilled ${backfilled} video(s)`);
-    if (partialReset > 0) warn(`${course.slug}: reset ${partialReset} partial/missing video(s) for re-download`);
+    for (const item of backfilledItems) {
+      info(`  [backfill] ${item.courseSlug} :: ${item.videoIndex}. ${item.videoTitle} → ${item.path}`);
+    }
+    for (const item of partialResetItems) {
+      warn(`  [reset:${item.reason}] ${item.courseSlug} :: ${item.videoIndex}. ${item.videoTitle} → ${item.path}`);
+    }
   }
 
   const dirty = totalBackfilled > 0 || totalPartialReset > 0;

@@ -78,6 +78,21 @@ export function derivePartPath(outputPath) {
   return outputPath + '.part';
 }
 
+// Promotes a .part file to its final path, but ONLY if it carries a real
+// Matroska Cues trailer. ffmpeg can exit 0 on a truncated output when the HLS
+// reader gives up retrying a segment (-reconnect_delay_max), so exit code alone
+// is not proof of completion. A failing .part is removed to free disk and
+// surface the failure to the caller's retry logic.
+export function finalizePart(partPath, outputPath) {
+  if (!existsSync(partPath)) return false;
+  if (!isFileComplete(partPath)) {
+    try { unlinkSync(partPath); } catch { /* ignore */ }
+    return false;
+  }
+  renameSync(partPath, outputPath);
+  return true;
+}
+
 export function sweepPartFiles(root) {
   const coursesDir = join(root, 'courses');
   if (!existsSync(coursesDir)) return 0;
@@ -349,7 +364,10 @@ async function attemptSegmentSkip(variantUrl, partPath, outputPath, settings, ba
       warn(`  [patch] Output only ${fmtSize(Math.round(size / 1024))} — likely connectivity loss, discarding`);
       return false;
     }
-    renameSync(partPath, outputPath);
+    if (!finalizePart(partPath, outputPath)) {
+      warn(`  [patch] Output lacks Matroska trailer — truncated, discarding`);
+      return false;
+    }
     info(`  [patch] Succeeded — ${segName} omitted from final file`);
     return true;
   } finally {
@@ -369,12 +387,18 @@ async function downloadVideoWithBackoff(inputUrl, outputPath, settings) {
       info(`  [attempt ${attempt + 1}/${delays.length + 1}] retrying...`);
     }
     const { code, stderr, killedForStall, stallFrame, lastSegmentUrl: segUrl } = await runFfmpeg(inputUrl, partPath, settings);
-    if (code === 0) {
-      renameSync(partPath, outputPath);
-      return true;
-    }
     lastStderr = stderr;
     if (segUrl) lastSegmentUrl = segUrl;
+    let truncatedExit0 = false;
+    if (code === 0) {
+      if (finalizePart(partPath, outputPath)) return true;
+      // ffmpeg exited 0 but produced a file without a Matroska Cues trailer —
+      // happens when the HLS reader EOFs after exhausting segment retries.
+      // Treat as retry-able rather than silently promoting a truncated file.
+      const snippet = lastStderr.trim().split('\n').pop()?.slice(-120) ?? '';
+      warn(`  ffmpeg exited 0 but output lacks Matroska trailer — truncated, will retry${snippet ? ': ' + snippet : ''}`);
+      truncatedExit0 = true;
+    }
 
     if (killedForStall && stallFrame !== null && stallFrame >= MIN_STALL_FRAME) {
       stallFrames.push(stallFrame);
@@ -384,7 +408,7 @@ async function downloadVideoWithBackoff(inputUrl, outputPath, settings) {
       if (lastSegmentUrl) return attemptSegmentSkip(inputUrl, partPath, outputPath, settings, lastSegmentUrl);
     }
 
-    const retriable = isRateLimitError(stderr) || isNetworkError(stderr) || killedForStall;
+    const retriable = isRateLimitError(stderr) || isNetworkError(stderr) || killedForStall || truncatedExit0;
     if (!retriable || attempt === delays.length) {
       const snippet = lastStderr.trim().split('\n').pop()?.slice(-120) ?? '';
       warn(`  ffmpeg failed (exit ${code})${snippet ? ': ' + snippet : ''}`);
@@ -394,6 +418,7 @@ async function downloadVideoWithBackoff(inputUrl, outputPath, settings) {
     const wait = delays[attempt];
     const reason = killedForStall ? `CDN stall at frame ${stallFrame}`
       : isRateLimitError(stderr) ? 'rate limited (429/503)'
+      : truncatedExit0 ? 'truncated output (HLS retry exhausted)'
       : 'network error';
     info(`  [retry ${attempt + 1}/${delays.length}] ${reason} — waiting ${wait / 1000}s`);
     await sleep(wait);

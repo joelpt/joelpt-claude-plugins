@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { config as dotenvConfig } from 'dotenv';
-import { reconcileCourse } from './reconcile.js';
+import { reconcileCourse, sweepOrphanedTruncatedWebms } from './reconcile.js';
 import { atomicWriteJson } from './index-utils.js';
 import { runCourse, sweepPartFiles } from './download.js';
 import { info, warn, error } from './logger.js';
@@ -67,12 +67,18 @@ export async function runReconcile(indexPath, root) {
   let dirty = false;
 
   for (const course of (indexData.courses ?? [])) {
-    const { backfilled, alreadyComplete, partialReset, missing } = reconcileCourse(course, root);
+    const { backfilled, alreadyComplete, partialReset, missing, backfilledItems, partialResetItems } = reconcileCourse(course, root);
     totalBackfilled += backfilled;
     totalPartialReset += partialReset;
     totalAlready += alreadyComplete;
     totalMissing += missing;
     if (backfilled > 0 || partialReset > 0) dirty = true;
+    for (const item of backfilledItems) {
+      info(`  [backfill] ${item.courseSlug} :: ${item.videoIndex}. ${item.videoTitle} → ${item.path}`);
+    }
+    for (const item of partialResetItems) {
+      warn(`  [reset:${item.reason}] ${item.courseSlug} :: ${item.videoIndex}. ${item.videoTitle} → ${item.path}`);
+    }
   }
 
   if (dirty) await atomicWriteJson(indexPath, indexData);
@@ -84,6 +90,7 @@ export async function runReconcile(indexPath, root) {
     `${totalMissing} still missing`,
   ].filter(Boolean);
   info(`Reconcile complete: ${parts.join(', ')}.`);
+  return indexData;
 }
 
 async function main() {
@@ -111,6 +118,18 @@ async function main() {
 
   const swept = sweepPartFiles(root);
   if (swept > 0) info(`Swept ${swept} orphaned .part file(s) from previous interrupted download(s)`);
+
+  // Pre-flight: reconcile index against disk, then delete leftover truncated
+  // .webm files. Catches falsely-completed entries and frees their disk space
+  // before re-download. Logs each problem child so the user can see what was
+  // wrong with the prior state.
+  log('Running pre-flight reconcile against disk state...');
+  const reconciledIndex = await runReconcile(indexPath, root);
+  if (reconciledIndex) {
+    const { deleted, deletedPaths } = sweepOrphanedTruncatedWebms(reconciledIndex, root);
+    for (const p of deletedPaths) warn(`  [delete] orphan truncated .webm: ${p}`);
+    if (deleted > 0) info(`Swept ${deleted} orphan truncated .webm file(s) flagged by reconcile`);
+  }
 
   for (const slug of SLUGS) {
     if (ac.signal.aborted) break;

@@ -2,11 +2,12 @@ import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync } from 'node:fs';
 import { MIN_COMPLETE_FILE_BYTES } from '../lib/index-utils.js';
 
-import { reconcileCourse } from '../lib/reconcile.js';
+import { reconcileCourse, sweepOrphanedTruncatedWebms } from '../lib/reconcile.js';
 import { deriveOutputPath } from '../lib/index-utils.js';
+import { writeCuesToBuffer } from './helpers.js';
 
 function makeCourse(videos = []) {
   return {
@@ -35,11 +36,7 @@ function placeDiskFile(root, course, catTitle, index, title, size = 1_001_000, w
   const p = deriveOutputPath(root, course.slug, catTitle, index, title);
   mkdirSync(join(p, '..'), { recursive: true });
   const buf = Buffer.alloc(size);
-  if (withCues) {
-    const pos = size - 20;
-    buf[pos] = 0x1c; buf[pos + 1] = 0x53; buf[pos + 2] = 0xbb; buf[pos + 3] = 0x6b;
-    buf[pos + 4] = 0x85; buf[pos + 5] = 0xbb;
-  }
+  if (withCues) writeCuesToBuffer(buf);
   writeFileSync(p, buf);
   return p;
 }
@@ -203,4 +200,120 @@ test('reconcileCourse: resets completed:true video when localPath file is missin
   const video = course.categories[0].videos[0];
   assert.equal(video.completed, false);
   assert.equal(video.localPath, null);
+});
+
+// ── per-item problem-children reporting ──────────────────────────────────────
+
+test('reconcileCourse: lists each backfilled video in backfilledItems with full path', () => {
+  const root = mkdtempSync(join(tmpdir(), 'maestro-reconcile-'));
+  const course = makeCourse([{ title: 'Lesson 1' }, { title: 'Lesson 2' }]);
+  const p1 = placeDiskFile(root, course, 'Intro', 1, 'Lesson 1', 1_001_000, true);
+  const p2 = placeDiskFile(root, course, 'Intro', 2, 'Lesson 2', 1_001_000, true);
+
+  const result = reconcileCourse(course, root);
+
+  assert.equal(result.backfilled, 2);
+  assert.deepEqual(
+    result.backfilledItems.map(i => i.path).sort(),
+    [p1, p2].sort(),
+  );
+  assert.equal(result.backfilledItems[0].courseSlug, course.slug);
+  assert.equal(result.backfilledItems[0].videoTitle, 'Lesson 1');
+});
+
+test('reconcileCourse: lists each partial-reset video in partialResetItems with reason="truncated"', () => {
+  const root = mkdtempSync(join(tmpdir(), 'maestro-reconcile-'));
+  const filePath = deriveOutputPath(root, 'alice/course-a', 'Intro', 1, 'Lesson 1');
+  const size = MIN_COMPLETE_FILE_BYTES + 100_000;
+  mkdirSync(join(filePath, '..'), { recursive: true });
+  writeFileSync(filePath, Buffer.alloc(size));
+
+  const course = makeCourse([{
+    title: 'Lesson 1', completed: true, downloadedAt: '2026-05-01T00:00:00Z', localPath: filePath,
+  }]);
+
+  const result = reconcileCourse(course, root);
+
+  assert.equal(result.partialReset, 1);
+  assert.equal(result.partialResetItems.length, 1);
+  assert.equal(result.partialResetItems[0].path, filePath);
+  assert.equal(result.partialResetItems[0].reason, 'truncated');
+  assert.equal(result.partialResetItems[0].videoTitle, 'Lesson 1');
+});
+
+test('reconcileCourse: lists missing-file resets with reason="missing"', () => {
+  const root = mkdtempSync(join(tmpdir(), 'maestro-reconcile-'));
+  const course = makeCourse([{
+    title: 'Lesson 1', completed: true, downloadedAt: '2026-05-01T00:00:00Z',
+    localPath: '/no/such/path/1-Lesson 1.webm',
+  }]);
+
+  const result = reconcileCourse(course, root);
+
+  assert.equal(result.partialResetItems.length, 1);
+  assert.equal(result.partialResetItems[0].reason, 'missing');
+  assert.equal(result.partialResetItems[0].path, '/no/such/path/1-Lesson 1.webm');
+});
+
+// ── sweepOrphanedTruncatedWebms ──────────────────────────────────────────────
+// Removes .webm files that exist at the expected path but lack the Cues
+// trailer AND whose index entry already says completed=false. Runs AFTER
+// reconcileCourse, so reconcile has already moved any falsely-completed
+// entries to completed=false; this sweep deletes the corresponding junk.
+
+test('sweepOrphanedTruncatedWebms: deletes truncated .webm whose index says completed=false', () => {
+  const root = mkdtempSync(join(tmpdir(), 'maestro-sweep-'));
+  const course = makeCourse([{ title: 'Lesson 1' }]);
+  const path = placeDiskFile(root, course, 'Intro', 1, 'Lesson 1', 2_000_000, false);
+  const indexData = { courses: [course] };
+
+  const result = sweepOrphanedTruncatedWebms(indexData, root);
+
+  assert.equal(result.deleted, 1);
+  assert.deepEqual(result.deletedPaths, [path]);
+  assert.equal(existsSync(path), false);
+});
+
+test('sweepOrphanedTruncatedWebms: leaves complete .webm intact', () => {
+  const root = mkdtempSync(join(tmpdir(), 'maestro-sweep-'));
+  const course = makeCourse([{ title: 'Lesson 1' }]);
+  const path = placeDiskFile(root, course, 'Intro', 1, 'Lesson 1', 2_000_000, true);
+  const indexData = { courses: [course] };
+
+  const result = sweepOrphanedTruncatedWebms(indexData, root);
+
+  assert.equal(result.deleted, 0);
+  assert.equal(existsSync(path), true);
+});
+
+test('sweepOrphanedTruncatedWebms: never touches files for entries marked completed=true', () => {
+  const root = mkdtempSync(join(tmpdir(), 'maestro-sweep-'));
+  const path = deriveOutputPath(root, 'alice/course-a', 'Intro', 1, 'Lesson 1');
+  mkdirSync(join(path, '..'), { recursive: true });
+  // Truncated file but index says completed=true — do NOT delete; reconcile
+  // is responsible for resetting that flag, this function is the cleanup pass.
+  writeFileSync(path, Buffer.alloc(2_000_000));
+  const course = makeCourse([{ title: 'Lesson 1', completed: true, localPath: path }]);
+  const indexData = { courses: [course] };
+
+  const result = sweepOrphanedTruncatedWebms(indexData, root);
+
+  assert.equal(result.deleted, 0);
+  assert.equal(existsSync(path), true);
+});
+
+test('sweepOrphanedTruncatedWebms: counts and lists deletions across multiple videos', () => {
+  const root = mkdtempSync(join(tmpdir(), 'maestro-sweep-'));
+  const course = makeCourse([{ title: 'Lesson 1' }, { title: 'Lesson 2' }, { title: 'Lesson 3' }]);
+  const p1 = placeDiskFile(root, course, 'Intro', 1, 'Lesson 1', 2_000_000, false);
+  const p3 = placeDiskFile(root, course, 'Intro', 3, 'Lesson 3', 5_000_000, false);
+  // Lesson 2 has no file on disk
+  const indexData = { courses: [course] };
+
+  const result = sweepOrphanedTruncatedWebms(indexData, root);
+
+  assert.equal(result.deleted, 2);
+  assert.deepEqual(result.deletedPaths.sort(), [p1, p3].sort());
+  assert.equal(existsSync(p1), false);
+  assert.equal(existsSync(p3), false);
 });

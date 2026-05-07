@@ -203,7 +203,7 @@ export function hasCompletionCues(filePath) {
       else if (vintFirst & 0x20) vintLen = 3;
       else vintLen = 4;
       const contentStart = pos + 4 + vintLen;
-      if (contentStart < buf.length && buf[contentStart] === 0xbb) return true;
+      if (contentStart < buf.length) return true;
       searchFrom = pos + 1;
     }
     return false;

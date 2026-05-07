@@ -575,3 +575,83 @@ test('normalizeCpu: single core 100% stays 100', () => {
 test('normalizeCpu: rounds fractional result', () => {
   assert.equal(normalizeCpu(50, 8), 6);
 });
+
+// ── finalizePart ──────────────────────────────────────────────────────────────
+// Guards the .part → .webm rename. ffmpeg can exit 0 with a truncated output
+// (HLS retry-exhaustion EOFs the stream gracefully), so we must verify the
+// Matroska Cues trailer is present before promoting the .part file.
+
+import { finalizePart } from '../lib/download.js';
+import { unlinkSync } from 'node:fs';
+import { writeWebmWithCues } from './helpers.js';
+
+test('finalizePart: renames .part to final path when Cues trailer present', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'maestro-finalize-'));
+  const outputPath = join(dir, '1-Lesson.webm');
+  const partPath = outputPath + '.part';
+  writeWebmWithCues(partPath);
+
+  const ok = finalizePart(partPath, outputPath);
+
+  assert.equal(ok, true);
+  assert.equal(existsSync(outputPath), true);
+  assert.equal(existsSync(partPath), false);
+});
+
+test('finalizePart: refuses to rename and deletes .part when Cues missing (truncated)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'maestro-finalize-'));
+  const outputPath = join(dir, '1-Lesson.webm');
+  const partPath = outputPath + '.part';
+  // Substantial size but no Cues element — what ffmpeg leaves on retry-exhaustion
+  writeFileSync(partPath, Buffer.alloc(2_000_000));
+
+  const ok = finalizePart(partPath, outputPath);
+
+  assert.equal(ok, false, 'must not promote a truncated file');
+  assert.equal(existsSync(outputPath), false, 'no orphan .webm at output path');
+  assert.equal(existsSync(partPath), false, 'truncated .part should be cleaned up to free disk');
+});
+
+test('finalizePart: returns false and does not throw when .part file is missing', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'maestro-finalize-'));
+  const outputPath = join(dir, '1-Lesson.webm');
+  const partPath = outputPath + '.part';
+
+  const ok = finalizePart(partPath, outputPath);
+
+  assert.equal(ok, false);
+  assert.equal(existsSync(outputPath), false);
+});
+
+test('finalizePart: refuses to rename a sub-1MB .part file (under-threshold partial)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'maestro-finalize-'));
+  const outputPath = join(dir, '1-Lesson.webm');
+  const partPath = outputPath + '.part';
+  writeFileSync(partPath, Buffer.alloc(500_000));
+
+  const ok = finalizePart(partPath, outputPath);
+
+  assert.equal(ok, false);
+  assert.equal(existsSync(outputPath), false);
+});
+
+test('finalizePart: accepts Cues element with CRC-32 (0xBF) first content byte (ffmpeg v8.1+ format)', () => {
+  // ffmpeg v8.1+ emits a CRC-32 EBML element (0xBF) inside the Cues container
+  // before CuePoint entries (0xBB). Earlier code required 0xBB as first content
+  // byte and falsely rejected these as truncated — causing infinite retry loops.
+  const dir = mkdtempSync(join(tmpdir(), 'maestro-finalize-'));
+  const outputPath = join(dir, '1-Lesson.webm');
+  const partPath = outputPath + '.part';
+  const buf = Buffer.alloc(1_001_000);
+  const pos = buf.length - 20;
+  buf[pos] = 0x1c; buf[pos + 1] = 0x53; buf[pos + 2] = 0xbb; buf[pos + 3] = 0x6b; // Cues ID
+  buf[pos + 4] = 0x85; // VINT: 1-byte length (high bit set)
+  buf[pos + 5] = 0xbf; // CRC-32 element, NOT 0xBB CuePoint
+  writeFileSync(partPath, buf);
+
+  const ok = finalizePart(partPath, outputPath);
+
+  assert.equal(ok, true, 'must accept valid Cues regardless of first content byte');
+  assert.equal(existsSync(outputPath), true);
+  assert.equal(existsSync(partPath), false);
+});
