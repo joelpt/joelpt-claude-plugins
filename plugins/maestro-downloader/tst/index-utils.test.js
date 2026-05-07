@@ -14,6 +14,7 @@ import {
   buildFfmpegArgs,
   getEncoderSettings,
   hasCompletionCues,
+  isFileComplete,
   MIN_COMPLETE_FILE_BYTES,
 } from '../lib/index-utils.js';
 
@@ -468,4 +469,22 @@ test('hasCompletionCues: ignores placeholder Cues in file header (first few KB)'
   buf[106] = 0x85; buf[107] = 0xbb;
   // No real Cues in the last 200KB
   assert.equal(hasCompletionCues(writeTmpWebm(buf)), false);
+});
+
+// ── isFileComplete ────────────────────────────────────────────────────────────
+
+test('isFileComplete: returns true for complete file with Cues', () => {
+  assert.equal(isFileComplete(writeTmpWebm(makeWebmWithCues())), true);
+});
+
+test('isFileComplete: returns false for null path', () => {
+  assert.equal(isFileComplete(null), false);
+});
+
+test('isFileComplete: returns false for undefined path', () => {
+  assert.equal(isFileComplete(undefined), false);
+});
+
+test('isFileComplete: returns false for non-existent path', () => {
+  assert.equal(isFileComplete('/no/such/path/missing.webm'), false);
 });

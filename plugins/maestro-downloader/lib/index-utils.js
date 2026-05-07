@@ -212,6 +212,11 @@ export function hasCompletionCues(filePath) {
   }
 }
 
+export function isFileComplete(filePath) {
+  if (!filePath) return false;
+  return hasCompletionCues(filePath);
+}
+
 export function sanitizeFilename(name) {
   return name
     .replace(/:/g, '-')
