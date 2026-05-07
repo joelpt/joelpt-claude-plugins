@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { spawn } from 'node:child_process';
+import { spawn, execFile } from 'node:child_process';
 import { readFileSync, writeFileSync, mkdirSync, existsSync, statSync, mkdtempSync, rmSync, readdirSync, unlinkSync, renameSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
@@ -97,6 +97,16 @@ function sweepDir(dir) {
   return count;
 }
 
+// ── CPU polling ──────────────────────────────────────────────────────────────
+
+function pollCpu(pid, callback) {
+  execFile('ps', ['-o', '%cpu=', '-p', String(pid)], (err, stdout) => {
+    if (err) return;
+    const pct = parseFloat(stdout.trim());
+    if (!isNaN(pct)) callback(pct);
+  });
+}
+
 // ── TTY progress bar (non-exported, display-only) ────────────────────────────
 
 let progressLineActive = false;
@@ -113,7 +123,7 @@ function clearProgress() {
   }
 }
 
-function drawProgress(timeSec, totalSec, sizeKb, fps, speed) {
+function drawProgress(timeSec, totalSec, sizeKb, fps, speed, cpuPct = null) {
   let line;
   if (totalSec !== null && totalSec > 0 && timeSec !== null && timeSec >= 0) {
     const ratio = Math.min(timeSec / totalSec, 1);
@@ -123,11 +133,13 @@ function drawProgress(timeSec, totalSec, sizeKb, fps, speed) {
     if (sizeKb) parts.push(fmtSize(sizeKb));
     const eta = fmtEta(timeSec, totalSec, speed);
     if (eta) parts.push(eta);
+    if (cpuPct != null) parts.push(`cpu:${Math.round(cpuPct)}%`);
     line = '  ' + parts.join('  ');
   } else {
     const parts = ['  [encoding...]'];
     if (fps && fps > 0) parts.push(`fps=${Math.round(fps)}`);
     if (sizeKb) parts.push(fmtSize(sizeKb));
+    if (cpuPct != null) parts.push(`cpu:${Math.round(cpuPct)}%`);
     line = parts.join('  ');
   }
   process.stdout.write('\r' + line.padEnd(process.stdout.columns ?? 80));
@@ -153,16 +165,17 @@ async function runFfmpeg(inputUrl, outputPath, settings) {
     let lastSizeKb = null;
     let lastFps = null;
     let lastSpeed = null;
+    let lastCpuPct = null;
 
     const args = buildFfmpegArgs(inputUrl, outputPath, settings);
     debug(`nice -n 20 ffmpeg ${args.join(' ')}`);
     const proc = spawn('nice', ['-n', '20', 'ffmpeg', ...args], { stdio: ['ignore', 'inherit', 'pipe'] });
 
-    drawProgress(null, null, null, null, null);
-    const progressInterval = setInterval(
-      () => drawProgress(lastTimeSec, totalDurationSec, lastSizeKb, lastFps, lastSpeed),
-      PROGRESS_INTERVAL_MS,
-    );
+    drawProgress(null, null, null, null, null, null);
+    const progressInterval = setInterval(() => {
+      if (proc.pid) pollCpu(proc.pid, pct => { lastCpuPct = pct; });
+      drawProgress(lastTimeSec, totalDurationSec, lastSizeKb, lastFps, lastSpeed, lastCpuPct);
+    }, PROGRESS_INTERVAL_MS);
 
     const watchdog = setTimeout(() => {
       warn(`ffmpeg exceeded ${FFMPEG_TIMEOUT_MS / 60000} min timeout — killing`);
