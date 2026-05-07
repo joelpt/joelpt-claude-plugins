@@ -13,6 +13,8 @@ import {
   sanitizeFilename,
   buildFfmpegArgs,
   getEncoderSettings,
+  hasCompletionCues,
+  MIN_COMPLETE_FILE_BYTES,
 } from '../lib/index-utils.js';
 
 // ── mergeCourses ────────────────────────────────────────────────────────────
@@ -396,4 +398,74 @@ test('buildFfmpegArgs: includes protocol_whitelist for HLS over HTTPS', () => {
   assert.ok(pwIdx !== -1);
   assert.ok(args[pwIdx + 1].includes('https'));
   assert.ok(args[pwIdx + 1].includes('crypto'));
+});
+
+// ── hasCompletionCues ─────────────────────────────────────────────────────────
+
+// Builds a buffer that mimics a complete WebM: large enough and with a valid
+// Cues element (1c 53 bb 6b + 1-byte VINT + 0xBB CuePoint child) near the end,
+// exactly as ffmpeg's mkv_write_trailer() places it.
+function makeWebmWithCues(size = MIN_COMPLETE_FILE_BYTES + 100_000) {
+  const buf = Buffer.alloc(size);
+  const pos = size - 20;
+  buf[pos] = 0x1c;
+  buf[pos + 1] = 0x53;
+  buf[pos + 2] = 0xbb;
+  buf[pos + 3] = 0x6b;
+  buf[pos + 4] = 0x85; // 1-byte VINT (high bit set → length=5)
+  buf[pos + 5] = 0xbb; // CuePoint child element ID
+  return buf;
+}
+
+function writeTmpWebm(buf) {
+  const dir = mkdtempSync(join(tmpdir(), 'maestro-cues-'));
+  const p = join(dir, 'test.webm');
+  writeFileSync(p, buf);
+  return p;
+}
+
+test('hasCompletionCues: returns true for file with Cues element near end', () => {
+  assert.equal(hasCompletionCues(writeTmpWebm(makeWebmWithCues())), true);
+});
+
+test('hasCompletionCues: returns false for file without Cues element', () => {
+  assert.equal(hasCompletionCues(writeTmpWebm(Buffer.alloc(MIN_COMPLETE_FILE_BYTES + 100_000))), false);
+});
+
+test('hasCompletionCues: returns false for file below minimum size', () => {
+  assert.equal(hasCompletionCues(writeTmpWebm(makeWebmWithCues(MIN_COMPLETE_FILE_BYTES - 1))), false);
+});
+
+test('hasCompletionCues: returns false for non-existent file', () => {
+  assert.equal(hasCompletionCues('/no/such/path/missing.webm'), false);
+});
+
+test('hasCompletionCues: returns false for Cues ID with wrong child byte (not 0xBB)', () => {
+  const size = MIN_COMPLETE_FILE_BYTES + 100_000;
+  const buf = Buffer.alloc(size);
+  const pos = size - 20;
+  buf[pos] = 0x1c; buf[pos + 1] = 0x53; buf[pos + 2] = 0xbb; buf[pos + 3] = 0x6b;
+  buf[pos + 4] = 0x85;
+  buf[pos + 5] = 0x00; // not CuePoint
+  assert.equal(hasCompletionCues(writeTmpWebm(buf)), false);
+});
+
+test('hasCompletionCues: handles 2-byte VINT size encoding', () => {
+  const size = MIN_COMPLETE_FILE_BYTES + 100_000;
+  const buf = Buffer.alloc(size);
+  const pos = size - 20;
+  buf[pos] = 0x1c; buf[pos + 1] = 0x53; buf[pos + 2] = 0xbb; buf[pos + 3] = 0x6b;
+  buf[pos + 4] = 0x40; buf[pos + 5] = 0x20; // 2-byte VINT
+  buf[pos + 6] = 0xbb; // CuePoint at content offset 2
+  assert.equal(hasCompletionCues(writeTmpWebm(buf)), true);
+});
+
+test('hasCompletionCues: ignores placeholder Cues in file header (first few KB)', () => {
+  const size = MIN_COMPLETE_FILE_BYTES + 100_000;
+  const buf = Buffer.alloc(size);
+  // Header-region placeholder at offset 102 (like ffmpeg's EBMLVoid stub)
+  buf[102] = 0x1c; buf[103] = 0x53; buf[104] = 0xbb; buf[105] = 0x6b;
+  buf[106] = 0x85; buf[107] = 0xbb;
+  // No real Cues in the last 200KB
+  assert.equal(hasCompletionCues(writeTmpWebm(buf)), false);
 });

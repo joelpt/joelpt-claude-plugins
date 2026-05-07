@@ -5,7 +5,7 @@ import { join, dirname } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { config as dotenvConfig } from 'dotenv';
-import { deriveManifestUrl, deriveOutputPath, atomicWriteJson, getEncoderSettings, buildFfmpegArgs, profileForContentType } from './index-utils.js';
+import { deriveManifestUrl, deriveOutputPath, atomicWriteJson, getEncoderSettings, buildFfmpegArgs, profileForContentType, MIN_COMPLETE_FILE_BYTES } from './index-utils.js';
 import { info as _info, warn as _warn, debug, error } from './logger.js';
 
 const ENV_PATH = join(homedir(), '.claude', 'plugins', 'maestro-downloader', '.env');
@@ -66,6 +66,20 @@ export function fmtElapsed(ms) {
   const s = Math.floor(ms / 1000);
   const m = Math.floor(s / 60);
   return m > 0 ? `${m}m${s % 60}s` : `${s}s`;
+}
+
+// Returns true if the video needs to be (re-)downloaded.
+// Trusts index.json's completed flag only when the file on disk meets the
+// minimum size; partial downloads from killed ffmpeg runs pass size > 0 but
+// will be under the threshold.
+export function needsDownload(video) {
+  if (!video.completed) return true;
+  if (!video.localPath) return true;
+  try {
+    return statSync(video.localPath).size < MIN_COMPLETE_FILE_BYTES;
+  } catch {
+    return true;
+  }
 }
 
 // ── TTY progress bar (non-exported, display-only) ────────────────────────────
@@ -411,15 +425,19 @@ async function main() {
   const allVideos = course.categories.flatMap(cat =>
     cat.videos.map(v => ({ ...v, categoryTitle: cat.title })),
   );
-  const pending = allVideos.filter(v => !v.completed);
+  const pending = allVideos.filter(v => needsDownload(v));
+  const redownloads = pending.filter(v => v.completed).length;
   const total = allVideos.length;
 
   info(`Course: ${course.title} — ${course.instructor}`);
   info(`Quality: ${encoderSettings.description}`);
-  info(`Videos: ${total} total, ${pending.length} to download, ${total - pending.length} already done`);
+  info(`Videos: ${total} total, ${pending.length} to download, ${total - pending.length} confirmed on disk`);
+  if (redownloads > 0) {
+    info(`  Note: ${redownloads} previously-completed video(s) have missing or undersized files — re-downloading`);
+  }
 
   if (pending.length === 0) {
-    info('All videos already downloaded.');
+    info('All videos confirmed on disk.');
     process.exit(0);
   }
 
@@ -437,7 +455,8 @@ async function main() {
     const inputUrl = deriveManifestUrl(video.manifestUrl, encoderSettings.resolution);
     const outputPath = deriveOutputPath(root, course.slug, video.categoryTitle, video.index, video.title);
 
-    info(`\n[${downloaded + failed + 1}/${pending.length}] ${video.index}. ${video.title}`);
+    const redownloadTag = video.completed ? '  [re-download: file missing or undersized]' : '';
+    info(`\n[${downloaded + failed + 1}/${pending.length}] ${video.index}. ${video.title}${redownloadTag}`);
     info(`  Category: ${video.categoryTitle}`);
     info(`  Output:   ${outputPath}`);
 

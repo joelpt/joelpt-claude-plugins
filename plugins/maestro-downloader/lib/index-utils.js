@@ -1,7 +1,11 @@
-import { writeFileSync, renameSync } from 'node:fs';
+import { writeFileSync, renameSync, openSync, readSync, closeSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 const STALE_DAYS = 30;
+
+// Minimum file size to consider a .webm complete. Below this the file is
+// treated as a partial download (killed ffmpeg, disk-full abort, etc.).
+export const MIN_COMPLETE_FILE_BYTES = 1_000_000;
 
 export function mergeCourses(existing, fresh) {
   const existingBySlug = new Map(existing.map((c) => [c.slug, c]));
@@ -162,6 +166,50 @@ export function buildFfmpegArgs(inputUrl, outputPath, settings) {
   }
   args.push('-c:a', 'libopus', '-b:a', settings.audioBitrate, outputPath);
   return args;
+}
+
+// Returns true if the WebM file contains a real Matroska Cues element in its
+// last 200 KB. ffmpeg writes Cues only in mkv_write_trailer(); interrupted
+// downloads never have it. A placeholder Cues stub sits at ~offset 102 in the
+// header (EBMLVoid padding) and is intentionally excluded by searching only the
+// tail. Files below MIN_COMPLETE_FILE_BYTES are treated as partial without read.
+const CUES_ID = Buffer.from([0x1c, 0x53, 0xbb, 0x6b]);
+const CUES_TAIL_BYTES = 204_800; // 200 KB
+export function hasCompletionCues(filePath) {
+  try {
+    const size = statSync(filePath).size;
+    if (size < MIN_COMPLETE_FILE_BYTES) return false;
+
+    const readFrom = Math.max(0, size - CUES_TAIL_BYTES);
+    const readSize = size - readFrom;
+    const buf = Buffer.allocUnsafe(readSize);
+    const fd = openSync(filePath, 'r');
+    try {
+      readSync(fd, buf, 0, readSize, readFrom);
+    } finally {
+      closeSync(fd);
+    }
+
+    let searchFrom = 0;
+    while (searchFrom < buf.length) {
+      const pos = buf.indexOf(CUES_ID, searchFrom);
+      if (pos === -1) return false;
+      // Parse EBML VINT length from the byte immediately after the 4-byte element ID
+      if (pos + 4 >= buf.length) { searchFrom = pos + 1; continue; }
+      const vintFirst = buf[pos + 4];
+      let vintLen;
+      if (vintFirst & 0x80) vintLen = 1;
+      else if (vintFirst & 0x40) vintLen = 2;
+      else if (vintFirst & 0x20) vintLen = 3;
+      else vintLen = 4;
+      const contentStart = pos + 4 + vintLen;
+      if (contentStart < buf.length && buf[contentStart] === 0xbb) return true;
+      searchFrom = pos + 1;
+    }
+    return false;
+  } catch {
+    return false;
+  }
 }
 
 export function sanitizeFilename(name) {

@@ -30,10 +30,10 @@ function makeCourse(videos = []) {
   };
 }
 
-function placeDiskFile(root, course, catTitle, index, title) {
+function placeDiskFile(root, course, catTitle, index, title, size = 1_001_000) {
   const p = deriveOutputPath(root, course.slug, catTitle, index, title);
   mkdirSync(join(p, '..'), { recursive: true });
-  writeFileSync(p, 'fake-video-bytes');
+  writeFileSync(p, Buffer.alloc(size));
   return p;
 }
 
@@ -93,6 +93,20 @@ test('reconcileCourse: handles mix of complete, backfillable, and missing', () =
   assert.equal(result.alreadyComplete, 1);
   assert.equal(result.backfilled, 1);
   assert.equal(result.missing, 1);
+});
+
+test('reconcileCourse: does not backfill files below minimum size threshold (partial download)', () => {
+  const root = mkdtempSync(join(tmpdir(), 'maestro-reconcile-'));
+  const course = makeCourse([{ title: 'Lesson 1' }]);
+
+  // 999 KB — non-zero but below the 1 MB minimum for a trustworthy complete file
+  placeDiskFile(root, course, 'Intro', 1, 'Lesson 1', 999_999);
+
+  const result = reconcileCourse(course, root);
+
+  assert.equal(result.backfilled, 0, 'under-threshold file must not be counted as complete');
+  assert.equal(result.missing, 1);
+  assert.equal(course.categories[0].videos[0].completed, false);
 });
 
 test('reconcileCourse: does not backfill zero-byte files (incomplete partial)', () => {

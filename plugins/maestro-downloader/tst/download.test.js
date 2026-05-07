@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { readFileSync, writeFileSync, mkdtempSync } from 'node:fs';
 
-import { isRateLimitError, isNetworkError, recordCompletion, parseLastFrame, extractBadSegmentUrl, patchManifest, isConsistentStall, parseTimeSeconds, parseDurationSec, parseFfmpegProgress, fmtSize, fmtEta, fmtElapsed } from '../lib/download.js';
+import { isRateLimitError, isNetworkError, recordCompletion, parseLastFrame, extractBadSegmentUrl, patchManifest, isConsistentStall, parseTimeSeconds, parseDurationSec, parseFfmpegProgress, fmtSize, fmtEta, fmtElapsed, needsDownload } from '../lib/download.js';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -451,4 +451,43 @@ test('fmtElapsed: returns Xm0s for exactly one minute', () => {
 
 test('fmtElapsed: returns Xm Ys for longer durations', () => {
   assert.equal(fmtElapsed(90000), '1m30s');
+});
+
+// ── needsDownload ─────────────────────────────────────────────────────────────
+
+test('needsDownload: returns true when completed is false', () => {
+  assert.equal(needsDownload({ completed: false, localPath: null }), true);
+});
+
+test('needsDownload: returns true when completed but localPath is null', () => {
+  assert.equal(needsDownload({ completed: true, localPath: null }), true);
+});
+
+test('needsDownload: returns true when completed but file does not exist on disk', () => {
+  assert.equal(needsDownload({ completed: true, localPath: '/no/such/path/ghost.webm' }), true);
+});
+
+test('needsDownload: returns true when completed but file is under minimum size', () => {
+  const tmpDir = mkdtempSync(join(tmpdir(), 'maestro-nd-'));
+  const tmpFile = join(tmpDir, 'partial.webm');
+  writeFileSync(tmpFile, Buffer.alloc(999_999));
+  assert.equal(needsDownload({ completed: true, localPath: tmpFile }), true);
+});
+
+test('needsDownload: returns false when completed and file meets minimum size with Cues element', () => {
+  const tmpDir = mkdtempSync(join(tmpdir(), 'maestro-nd-'));
+  const tmpFile = join(tmpDir, 'complete.webm');
+  const buf = Buffer.alloc(1_100_000);
+  // Place valid Cues element near end: ID + 1-byte VINT + CuePoint child
+  buf[1_099_980] = 0x1c; buf[1_099_981] = 0x53; buf[1_099_982] = 0xbb; buf[1_099_983] = 0x6b;
+  buf[1_099_984] = 0x85; buf[1_099_985] = 0xbb;
+  writeFileSync(tmpFile, buf);
+  assert.equal(needsDownload({ completed: true, localPath: tmpFile }), false);
+});
+
+test('needsDownload: returns true when completed and file is large but lacks Cues (partial download)', () => {
+  const tmpDir = mkdtempSync(join(tmpdir(), 'maestro-nd-'));
+  const tmpFile = join(tmpDir, 'partial.webm');
+  writeFileSync(tmpFile, Buffer.alloc(5_000_000)); // 5 MB, no Cues
+  assert.equal(needsDownload({ completed: true, localPath: tmpFile }), true);
 });

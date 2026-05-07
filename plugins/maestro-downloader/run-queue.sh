@@ -60,14 +60,14 @@ log "Queue started (${TOTAL} courses, resumable — completed videos will be ski
 
 for SLUG in "${SLUGS[@]}"; do
   log "▶ Starting ${SLUG} ($((DONE+FAILED+1))/${TOTAL})"
-  if node lib/download.js "${SLUG}" >> "${LOG}" 2>&1; then
+  if node lib/download.js "${SLUG}" 2>&1 | tee -a "${LOG}"; then
     log "✓ Completed ${SLUG}"
     DONE=$((DONE+1))
   else
     log "✗ FAILED ${SLUG}"
     FAILED=$((FAILED+1))
   fi
-  node lib/reconcile.js >> "${LOG}" 2>&1 && log "  reconcile: ok"
+  node lib/reconcile.js 2>&1 | tee -a "${LOG}" && log "  reconcile: ok"
 done
 
 log "Queue complete. ${DONE} succeeded, ${FAILED} failed."

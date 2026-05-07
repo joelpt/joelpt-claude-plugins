@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { config as dotenvConfig } from 'dotenv';
-import { atomicWriteJson, deriveOutputPath } from './index-utils.js';
+import { atomicWriteJson, deriveOutputPath, MIN_COMPLETE_FILE_BYTES } from './index-utils.js';
 import { info, warn } from './logger.js';
 
 const ENV_PATH = join(homedir(), '.claude', 'plugins', 'maestro-downloader', '.env');
@@ -19,7 +19,7 @@ export function reconcileCourse(course, root) {
   for (const cat of course.categories) {
     for (const video of cat.videos) {
       const expectedPath = deriveOutputPath(root, course.slug, cat.title, video.index, video.title);
-      const onDisk = existsSync(expectedPath) && statSync(expectedPath).size > 0;
+      const onDisk = existsSync(expectedPath) && statSync(expectedPath).size >= MIN_COMPLETE_FILE_BYTES;
 
       if (video.completed) {
         alreadyComplete++;
