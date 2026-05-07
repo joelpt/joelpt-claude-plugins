@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { readFileSync, writeFileSync, mkdtempSync } from 'node:fs';
 
-import { isRateLimitError, isNetworkError, recordCompletion, parseLastFrame, extractBadSegmentUrl, patchManifest, isConsistentStall } from '../lib/download.js';
+import { isRateLimitError, isNetworkError, recordCompletion, parseLastFrame, extractBadSegmentUrl, patchManifest, isConsistentStall, parseTimeSeconds, parseDurationSec, parseFfmpegProgress, fmtSize, fmtEta, fmtElapsed } from '../lib/download.js';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -304,4 +304,151 @@ test('isConsistentStall: returns true across 5 near-identical stall points (real
 test('isConsistentStall: returns false when early failure mixed with deep stall (WiFi scenario)', () => {
   // First retry stalled deep; second retry failed at frame 0 (WiFi gone)
   assert.equal(isConsistentStall([5246, 0]), false);
+});
+
+// ── parseTimeSeconds ──────────────────────────────────────────────────────────
+
+test('parseTimeSeconds: parses HH:MM:SS.xx into total seconds', () => {
+  assert.ok(Math.abs(parseTimeSeconds('00:12:34.56') - 754.56) < 0.001);
+});
+
+test('parseTimeSeconds: handles hours correctly', () => {
+  assert.equal(parseTimeSeconds('01:00:00.00'), 3600);
+});
+
+test('parseTimeSeconds: returns zero for all-zero timestamp', () => {
+  assert.equal(parseTimeSeconds('00:00:00.00'), 0);
+});
+
+test('parseTimeSeconds: returns null for empty string', () => {
+  assert.equal(parseTimeSeconds(''), null);
+});
+
+test('parseTimeSeconds: returns null for invalid format', () => {
+  assert.equal(parseTimeSeconds('not-a-time'), null);
+});
+
+test('parseTimeSeconds: parses minutes and seconds without hours', () => {
+  assert.ok(Math.abs(parseTimeSeconds('00:02:46.08') - 166.08) < 0.001);
+});
+
+// ── parseDurationSec ──────────────────────────────────────────────────────────
+
+test('parseDurationSec: extracts duration from ffmpeg header output', () => {
+  const stderr = '  Duration: 00:12:34.56, start: 0.000000, bitrate: 1234 kb/s';
+  assert.ok(Math.abs(parseDurationSec(stderr) - 754.56) < 0.001);
+});
+
+test('parseDurationSec: returns null when no Duration line present', () => {
+  assert.equal(parseDurationSec('Stream #0:0: Video: h264'), null);
+});
+
+test('parseDurationSec: returns null for empty string', () => {
+  assert.equal(parseDurationSec(''), null);
+});
+
+// ── parseFfmpegProgress ───────────────────────────────────────────────────────
+
+const PROGRESS_LINE = 'frame= 4152 fps= 10 q=30.0 size=   26112KiB time=00:02:46.08 bitrate=1288.0kbits/s speed=0.4x elapsed=0:06:54.87    ';
+
+test('parseFfmpegProgress: extracts timeSec from KiB progress line', () => {
+  const r = parseFfmpegProgress(PROGRESS_LINE);
+  assert.ok(r !== null);
+  assert.ok(Math.abs(r.timeSec - 166.08) < 0.001);
+});
+
+test('parseFfmpegProgress: extracts sizeKb from KiB progress line', () => {
+  assert.equal(parseFfmpegProgress(PROGRESS_LINE).sizeKb, 26112);
+});
+
+test('parseFfmpegProgress: extracts fps from progress line', () => {
+  assert.equal(parseFfmpegProgress(PROGRESS_LINE).fps, 10);
+});
+
+test('parseFfmpegProgress: extracts speed from progress line', () => {
+  assert.equal(parseFfmpegProgress(PROGRESS_LINE).speed, 0.4);
+});
+
+test('parseFfmpegProgress: returns null when no time= token present', () => {
+  assert.equal(parseFfmpegProgress('frame= 100 fps= 25 q=31.0 size=1024KiB'), null);
+});
+
+test('parseFfmpegProgress: handles size=N/A startup output (sizeKb is null)', () => {
+  const startup = 'frame=    0 fps=0.0 q=0.0 size=       0kB time=00:00:00.00 bitrate=N/A speed=N/A';
+  const r = parseFfmpegProgress(startup);
+  assert.ok(r !== null);
+  assert.equal(r.speed, null);
+});
+
+test('parseFfmpegProgress: handles kB (lowercase) as well as KiB', () => {
+  const kbLine = 'frame=  100 fps= 25 q=31.0 size=    4096kB time=00:00:04.00 bitrate=8192.0kbits/s speed=3.0x';
+  const r = parseFfmpegProgress(kbLine);
+  assert.equal(r.sizeKb, 4096);
+});
+
+// ── fmtSize ───────────────────────────────────────────────────────────────────
+
+test('fmtSize: returns kB label for values under 1024', () => {
+  assert.equal(fmtSize(512), '512kB');
+});
+
+test('fmtSize: returns kB for exactly 1023', () => {
+  assert.equal(fmtSize(1023), '1023kB');
+});
+
+test('fmtSize: returns MB for values >= 1024', () => {
+  assert.equal(fmtSize(1024), '1.0MB');
+});
+
+test('fmtSize: formats fractional MB correctly', () => {
+  assert.equal(fmtSize(1536), '1.5MB');
+});
+
+test('fmtSize: returns GB for values >= 1024*1024', () => {
+  assert.equal(fmtSize(1024 * 1024), '1.0GB');
+});
+
+// ── fmtEta ────────────────────────────────────────────────────────────────────
+
+test('fmtEta: returns seconds-only string for short remaining time', () => {
+  assert.equal(fmtEta(75, 100, 1), '25s');
+});
+
+test('fmtEta: returns Xm Ys format for >60s remaining', () => {
+  assert.equal(fmtEta(0, 100, 1), '1m40s');
+});
+
+test('fmtEta: returns empty string when totalSec is 0', () => {
+  assert.equal(fmtEta(0, 0, 1), '');
+});
+
+test('fmtEta: returns empty string when speed is null', () => {
+  assert.equal(fmtEta(0, 100, null), '');
+});
+
+test('fmtEta: returns empty string when speed is 0', () => {
+  assert.equal(fmtEta(0, 100, 0), '');
+});
+
+test('fmtEta: returns empty string when current >= total (already done)', () => {
+  assert.equal(fmtEta(100, 100, 1), '');
+});
+
+// ── fmtElapsed ────────────────────────────────────────────────────────────────
+
+test('fmtElapsed: returns 0s for zero ms', () => {
+  assert.equal(fmtElapsed(0), '0s');
+});
+
+test('fmtElapsed: returns seconds only for under one minute', () => {
+  assert.equal(fmtElapsed(1000), '1s');
+  assert.equal(fmtElapsed(59000), '59s');
+});
+
+test('fmtElapsed: returns Xm0s for exactly one minute', () => {
+  assert.equal(fmtElapsed(60000), '1m0s');
+});
+
+test('fmtElapsed: returns Xm Ys for longer durations', () => {
+  assert.equal(fmtElapsed(90000), '1m30s');
 });

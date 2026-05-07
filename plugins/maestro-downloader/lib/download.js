@@ -6,17 +6,111 @@ import { homedir, tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { config as dotenvConfig } from 'dotenv';
 import { deriveManifestUrl, deriveOutputPath, atomicWriteJson, getEncoderSettings, buildFfmpegArgs, profileForContentType } from './index-utils.js';
-import { info, warn, debug, error } from './logger.js';
+import { info as _info, warn as _warn, debug, error } from './logger.js';
 
 const ENV_PATH = join(homedir(), '.claude', 'plugins', 'maestro-downloader', '.env');
 dotenvConfig({ path: ENV_PATH, override: false });
 
+const debugEnabled = process.env.DEBUG === 'true' || process.argv.includes('--debug');
+
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
-const FFMPEG_TIMEOUT_MS = 20 * 60 * 1000; // 20 min hard ceiling
-const FRAME_STALL_MS = 45_000;            // 45s with no frame advance = CDN segment stall
-const MIN_STALL_FRAME = 500;              // stall must be >500 frames in to qualify for segment-skip
-const MIN_SKIP_OUTPUT_BYTES = 1_000_000; // <1 MB after segment-skip = treat as failed (connectivity loss)
+const FFMPEG_TIMEOUT_MS = 20 * 60 * 1000;
+const FRAME_STALL_MS = 45_000;
+const MIN_STALL_FRAME = 500;
+const MIN_SKIP_OUTPUT_BYTES = 1_000_000;
+const NON_TTY_PROGRESS_INTERVAL_MS = 30_000;
+
+// ── Progress helpers (pure, exported for tests) ───────────────────────────────
+
+export function parseTimeSeconds(timeStr) {
+  const m = timeStr?.match(/(\d+):(\d+):(\d+(?:\.\d+)?)/);
+  return m ? parseInt(m[1]) * 3600 + parseInt(m[2]) * 60 + parseFloat(m[3]) : null;
+}
+
+export function parseDurationSec(stderrBuf) {
+  const m = stderrBuf?.match(/Duration:\s*(\d+:\d+:\d+(?:\.\d+)?)/);
+  return m ? parseTimeSeconds(m[1]) : null;
+}
+
+export function parseFfmpegProgress(chunk) {
+  const timeM = chunk?.match(/time=\s*(-?\d+:\d+:\d+(?:\.\d+)?)/);
+  if (!timeM) return null;
+  const sizeM = chunk.match(/size=\s*(\d+)\s*Ki?B/i);
+  const fpsM = chunk.match(/fps=\s*([\d.]+)/);
+  const speedM = chunk.match(/speed=\s*([\d.]+)x/);
+  return {
+    timeSec: parseTimeSeconds(timeM[1]),
+    sizeKb: sizeM ? parseInt(sizeM[1]) : null,
+    fps: fpsM ? parseFloat(fpsM[1]) : null,
+    speed: speedM ? parseFloat(speedM[1]) : null,
+  };
+}
+
+export function fmtSize(kb) {
+  if (kb >= 1024 * 1024) return `${(kb / 1024 / 1024).toFixed(1)}GB`;
+  if (kb >= 1024) return `${(kb / 1024).toFixed(1)}MB`;
+  return `${kb}kB`;
+}
+
+export function fmtEta(currentSec, totalSec, speed) {
+  if (!speed || speed <= 0 || !totalSec || currentSec >= totalSec) return '';
+  const remaining = (totalSec - currentSec) / speed;
+  if (remaining <= 0) return '';
+  const m = Math.floor(remaining / 60);
+  const s = Math.floor(remaining % 60);
+  return m > 0 ? `${m}m${s}s` : `${s}s`;
+}
+
+export function fmtElapsed(ms) {
+  const s = Math.floor(ms / 1000);
+  const m = Math.floor(s / 60);
+  return m > 0 ? `${m}m${s % 60}s` : `${s}s`;
+}
+
+// ── TTY progress bar (non-exported, display-only) ────────────────────────────
+
+let progressLineActive = false;
+
+function renderBar(ratio, width = 28) {
+  const filled = Math.round(Math.max(0, Math.min(1, ratio)) * width);
+  return '█'.repeat(filled) + '░'.repeat(width - filled);
+}
+
+function clearProgress() {
+  if (progressLineActive) {
+    process.stdout.write('\r\x1b[2K');
+    progressLineActive = false;
+  }
+}
+
+function drawProgress(timeSec, totalSec, sizeKb, fps, speed) {
+  let line;
+  if (totalSec !== null && totalSec > 0 && timeSec !== null && timeSec >= 0) {
+    const ratio = Math.min(timeSec / totalSec, 1);
+    const pct = Math.round(ratio * 100);
+    const parts = [`[${renderBar(ratio)}] ${String(pct).padStart(3)}%`];
+    if (fps && fps > 0) parts.push(`fps=${Math.round(fps)}`);
+    if (sizeKb) parts.push(fmtSize(sizeKb));
+    const eta = fmtEta(timeSec, totalSec, speed);
+    if (eta) parts.push(eta);
+    line = '  ' + parts.join('  ');
+  } else {
+    const parts = ['  [encoding...]'];
+    if (fps && fps > 0) parts.push(`fps=${Math.round(fps)}`);
+    if (sizeKb) parts.push(fmtSize(sizeKb));
+    line = parts.join('  ');
+  }
+  process.stdout.write('\r' + line.padEnd(process.stdout.columns ?? 80));
+  progressLineActive = true;
+}
+
+// ── Local info/warn wrappers — auto-clear progress bar before printing ────────
+
+function info(msg) { clearProgress(); _info(msg); }
+function warn(msg) { clearProgress(); _warn(msg); }
+
+// ── ffmpeg process ────────────────────────────────────────────────────────────
 
 async function runFfmpeg(inputUrl, outputPath, settings) {
   return new Promise((resolve) => {
@@ -25,6 +119,8 @@ async function runFfmpeg(inputUrl, outputPath, settings) {
     let lastFrameAt = Date.now();
     let killedForStall = false;
     let lastSegmentUrl = null;
+    let totalDurationSec = null;
+    let lastNonTtyReport = Date.now();
 
     const args = buildFfmpegArgs(inputUrl, outputPath, settings);
     debug(`nice -n 20 ffmpeg ${args.join(' ')}`);
@@ -35,9 +131,7 @@ async function runFfmpeg(inputUrl, outputPath, settings) {
       proc.kill('SIGKILL');
     }, FFMPEG_TIMEOUT_MS);
 
-    // Frame-advance watchdog: kills ffmpeg when CDN stalls mid-segment.
-    // -timeout 30000000 does not fire when the CDN sends partial segment data then
-    // goes silent — the socket stays alive so no timeout is triggered.
+    // Kills ffmpeg when CDN stalls mid-segment (socket stays alive so -timeout doesn't fire).
     const frameWatchdog = setInterval(() => {
       const frame = parseLastFrame(stderrBuf);
       if (frame !== null && frame > lastFrame) {
@@ -46,7 +140,7 @@ async function runFfmpeg(inputUrl, outputPath, settings) {
       }
       const stallMs = Date.now() - lastFrameAt;
       if (lastFrame >= 0 && stallMs > FRAME_STALL_MS && !killedForStall) {
-        warn(`ffmpeg stalled at frame ${lastFrame} for ${Math.round(stallMs / 1000)}s — killing for retry`);
+        warn(`CDN stall at frame ${lastFrame} (${Math.round(stallMs / 1000)}s no progress) — killing for retry`);
         killedForStall = true;
         proc.kill('SIGKILL');
       }
@@ -55,18 +149,49 @@ async function runFfmpeg(inputUrl, outputPath, settings) {
     proc.stderr.on('data', (d) => {
       const chunk = d.toString();
       stderrBuf = (stderrBuf + chunk).slice(-4096);
+
       const seg = chunk.match(/Opening '(https?:\/\/[^']+\.ts)' for reading/);
       if (seg) lastSegmentUrl = seg[1];
-      process.stderr.write(chunk);
+
+      if (totalDurationSec === null) {
+        totalDurationSec = parseDurationSec(stderrBuf);
+      }
+
+      const progress = parseFfmpegProgress(chunk);
+      if (progress?.timeSec !== null && progress?.timeSec >= 0) {
+        if (process.stdout.isTTY) {
+          drawProgress(progress.timeSec, totalDurationSec, progress.sizeKb, progress.fps, progress.speed);
+        } else {
+          const now = Date.now();
+          if (now - lastNonTtyReport >= NON_TTY_PROGRESS_INTERVAL_MS) {
+            lastNonTtyReport = now;
+            const parts = [];
+            if (totalDurationSec && totalDurationSec > 0) {
+              parts.push(`${Math.round(progress.timeSec / totalDurationSec * 100)}%`);
+            }
+            if (progress.fps && progress.fps > 0) parts.push(`fps=${Math.round(progress.fps)}`);
+            if (progress.sizeKb) parts.push(fmtSize(progress.sizeKb));
+            const eta = fmtEta(progress.timeSec, totalDurationSec, progress.speed);
+            if (eta) parts.push(eta);
+            if (parts.length) _info(`  [${parts.join('  ')}]`);
+          }
+        }
+      }
+
+      if (debugEnabled) process.stderr.write(chunk);
     });
+
     proc.on('close', (code) => {
       clearTimeout(watchdog);
       clearInterval(frameWatchdog);
+      clearProgress();
       resolve({ code, stderr: stderrBuf, killedForStall, stallFrame: killedForStall ? lastFrame : null, lastSegmentUrl });
     });
+
     proc.on('error', (err) => {
       clearTimeout(watchdog);
       clearInterval(frameWatchdog);
+      clearProgress();
       resolve({ code: -1, stderr: err.message, killedForStall, stallFrame: null });
     });
   });
@@ -151,32 +276,34 @@ async function fetchManifest(url) {
 }
 
 async function attemptSegmentSkip(variantUrl, outputPath, settings, badSegmentUrl) {
-  info(`Segment skip: fetching manifest to patch out bad segment ${badSegmentUrl.split('/').pop()}`);
+  const segName = badSegmentUrl.split('/').pop();
+  info(`  [patch] Bad segment: ${segName} — fetching manifest to skip it`);
   const manifestText = await fetchManifest(variantUrl);
   if (!manifestText) {
-    warn('Segment skip: could not fetch manifest — skipping');
+    warn('  [patch] Could not fetch manifest — skipping video');
     return false;
   }
   const patched = patchManifest(manifestText, badSegmentUrl);
   if (patched === manifestText) {
-    warn(`Segment skip: bad segment not found in manifest — skipping`);
+    warn(`  [patch] Segment ${segName} not found in manifest — skipping video`);
     return false;
   }
+  info(`  [patch] Patched out ${segName}, re-encoding without it`);
   const tmpDir = mkdtempSync(join(tmpdir(), 'maestro-skip-'));
   const tmpManifest = join(tmpDir, 'playlist.m3u8');
   try {
     writeFileSync(tmpManifest, patched);
     const { code } = await runFfmpeg(`file://${tmpManifest}`, outputPath, settings);
     if (code !== 0) {
-      warn(`Segment skip: ffmpeg exited ${code}`);
+      warn(`  [patch] Re-encode exited ${code} — video failed`);
       return false;
     }
     const { size } = statSync(outputPath);
     if (size < MIN_SKIP_OUTPUT_BYTES) {
-      warn(`Segment skip: output too small (${size} bytes) — likely a connectivity failure, discarding`);
+      warn(`  [patch] Output only ${fmtSize(Math.round(size / 1024))} — likely connectivity loss, discarding`);
       return false;
     }
-    info(`Segment skip: succeeded — one segment omitted from output`);
+    info(`  [patch] Succeeded — ${segName} omitted from final file`);
     return true;
   } finally {
     rmSync(tmpDir, { recursive: true, force: true });
@@ -187,9 +314,12 @@ async function downloadVideoWithBackoff(inputUrl, outputPath, settings) {
   const delays = [5000, 10000, 20000, 40000, 60000];
   const stallFrames = [];
   let lastStderr = '';
-
   let lastSegmentUrl = null;
+
   for (let attempt = 0; attempt <= delays.length; attempt++) {
+    if (attempt > 0) {
+      info(`  [attempt ${attempt + 1}/${delays.length + 1}] retrying...`);
+    }
     const { code, stderr, killedForStall, stallFrame, lastSegmentUrl: segUrl } = await runFfmpeg(inputUrl, outputPath, settings);
     if (code === 0) return true;
     lastStderr = stderr;
@@ -199,23 +329,22 @@ async function downloadVideoWithBackoff(inputUrl, outputPath, settings) {
       stallFrames.push(stallFrame);
     }
 
-    // After 3 consistent stalls at the same segment, skip the bad segment immediately
-    // rather than burning all remaining retries on the same dead CDN segment.
     if (stallFrames.length >= 3 && isConsistentStall(stallFrames)) {
       if (lastSegmentUrl) return attemptSegmentSkip(inputUrl, outputPath, settings, lastSegmentUrl);
     }
 
     const retriable = isRateLimitError(stderr) || isNetworkError(stderr) || killedForStall;
     if (!retriable || attempt === delays.length) {
-      warn(`ffmpeg failed (exit ${code})`);
+      const snippet = lastStderr.trim().split('\n').pop()?.slice(-120) ?? '';
+      warn(`  ffmpeg failed (exit ${code})${snippet ? ': ' + snippet : ''}`);
       return false;
     }
+
     const wait = delays[attempt];
-    const reason = killedForStall ? 'CDN segment stall'
-      : isRateLimitError(stderr) ? 'Rate limited'
-      : 'Network error';
-    debug(`backoff: waiting ${wait / 1000}s (attempt ${attempt + 1})`);
-    info(`${reason} — waiting ${wait / 1000}s before retry ${attempt + 1}...`);
+    const reason = killedForStall ? `CDN stall at frame ${stallFrame}`
+      : isRateLimitError(stderr) ? 'rate limited (429/503)'
+      : 'network error';
+    info(`  [retry ${attempt + 1}/${delays.length}] ${reason} — waiting ${wait / 1000}s`);
     await sleep(wait);
   }
   return false;
@@ -296,10 +425,11 @@ async function main() {
 
   let downloaded = 0;
   let failed = 0;
+  const sessionStart = Date.now();
 
   for (const video of pending) {
     if (!video.manifestUrl) {
-      info(`  [SKIP] ${video.index}. ${video.title} — no manifest URL (run /fetch-list to capture it)`);
+      info(`\n[${downloaded + failed + 1}/${pending.length}] ${video.index}. ${video.title} — no manifest URL (run /fetch-list)`);
       failed++;
       continue;
     }
@@ -308,23 +438,28 @@ async function main() {
     const outputPath = deriveOutputPath(root, course.slug, video.categoryTitle, video.index, video.title);
 
     info(`\n[${downloaded + failed + 1}/${pending.length}] ${video.index}. ${video.title}`);
-    info(`  → ${outputPath}`);
+    info(`  Category: ${video.categoryTitle}`);
+    info(`  Output:   ${outputPath}`);
 
     mkdirSync(dirname(outputPath), { recursive: true });
 
+    const videoStart = Date.now();
     const success = await downloadVideoWithBackoff(inputUrl, outputPath, encoderSettings);
 
     if (success) {
       downloaded++;
       await recordCompletion(indexPath, course.slug, video.lessonUrl, outputPath);
-      info(`  ✓ Done`);
+      const elapsed = fmtElapsed(Date.now() - videoStart);
+      let sizeStr = '';
+      try { sizeStr = ` — ${fmtSize(Math.round(statSync(outputPath).size / 1024))}`; } catch {}
+      info(`  ✓ Done in ${elapsed}${sizeStr}`);
     } else {
       failed++;
       info(`  ✗ Failed`);
     }
   }
 
-  info(`\nComplete: ${downloaded} downloaded, ${failed} failed.`);
+  info(`\nComplete: ${downloaded} downloaded, ${failed} failed  [${fmtElapsed(Date.now() - sessionStart)}]`);
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) main();
