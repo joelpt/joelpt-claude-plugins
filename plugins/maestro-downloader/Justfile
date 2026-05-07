@@ -5,9 +5,7 @@ test-integration:
     node --test tst/integration/*.test.js
 
 run:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    exec "{{justfile_directory()}}/run-queue.sh"
+    node lib/queue.js
 
 build:
     @echo 'No build step needed (pure Node.js)'
