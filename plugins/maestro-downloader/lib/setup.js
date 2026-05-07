@@ -6,7 +6,6 @@
  * Exits 0 on successful login, 1 on failure.
  */
 
-import { chromium } from 'playwright';
 import { config as dotenvConfig } from 'dotenv';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -25,6 +24,7 @@ function fail(msg) {
 }
 
 async function validateCredentials(email, password) {
+  const { chromium } = await import('playwright');
   const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
   try {
     const context = await browser.newContext({
