@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { readFileSync, writeFileSync, mkdirSync, existsSync, mkdtempSync } from 'node:fs';
 
-import { isRateLimitError, isNetworkError, recordCompletion, parseLastFrame, extractBadSegmentUrl, patchManifest, isConsistentStall, parseTimeSeconds, parseDurationSec, parseFfmpegProgress, fmtSize, fmtEta, fmtElapsed, needsDownload, sweepPartFiles, derivePartPath, runCourse } from '../lib/download.js';
+import { isRateLimitError, isNetworkError, recordCompletion, parseLastFrame, extractBadSegmentUrl, patchManifest, isConsistentStall, parseTimeSeconds, parseDurationSec, parseFfmpegProgress, fmtSize, fmtEta, fmtElapsed, needsDownload, sweepPartFiles, derivePartPath, runCourse, computeRateMBs } from '../lib/download.js';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -574,6 +574,39 @@ test('normalizeCpu: single core 100% stays 100', () => {
 
 test('normalizeCpu: rounds fractional result', () => {
   assert.equal(normalizeCpu(50, 8), 6);
+});
+
+// ── computeRateMBs ──────────────────────────────────────────────────────────
+
+test('computeRateMBs: returns null for fewer than 2 samples', () => {
+  assert.equal(computeRateMBs([]), null);
+  assert.equal(computeRateMBs([{ ts: 0, bytes: 1000 }]), null);
+});
+
+test('computeRateMBs: returns null when window is under 1 second', () => {
+  const samples = [{ ts: 0, bytes: 0 }, { ts: 500, bytes: 1_000_000 }];
+  assert.equal(computeRateMBs(samples), null);
+});
+
+test('computeRateMBs: returns null when bytes did not increase', () => {
+  const samples = [{ ts: 0, bytes: 5_000_000 }, { ts: 5000, bytes: 5_000_000 }];
+  assert.equal(computeRateMBs(samples), null);
+});
+
+test('computeRateMBs: computes correct MB/s from oldest to newest sample', () => {
+  // 5 MB in 5 s = 1 MB/s
+  const samples = [{ ts: 0, bytes: 0 }, { ts: 5000, bytes: 5_000_000 }];
+  assert.ok(Math.abs(computeRateMBs(samples) - 1) < 0.001, 'expected ~1 MB/s');
+});
+
+test('computeRateMBs: uses oldest-to-newest span across multiple samples', () => {
+  // 10 MB delivered over 2 s window = 5 MB/s
+  const samples = [
+    { ts: 0, bytes: 0 },
+    { ts: 1000, bytes: 3_000_000 },
+    { ts: 2000, bytes: 10_000_000 },
+  ];
+  assert.ok(Math.abs(computeRateMBs(samples) - 5) < 0.001, 'expected ~5 MB/s');
 });
 
 // ── finalizePart ──────────────────────────────────────────────────────────────

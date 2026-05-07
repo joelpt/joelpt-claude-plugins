@@ -112,6 +112,24 @@ function sweepDir(dir) {
   return count;
 }
 
+// ── Bandwidth rate ───────────────────────────────────────────────────────────
+
+const RATE_WINDOW_MS = 5_000;
+
+// samples: [{ ts: number, bytes: number }], sorted oldest-first.
+// Returns rolling average MB/s (encode output rate) across the full span,
+// or null if insufficient data. Measures the .part file growth rate, not CDN
+// download speed — the two differ by the AV1 compression ratio.
+export function computeRateMBs(samples) {
+  if (samples.length < 2) return null;
+  const first = samples[0];
+  const last = samples[samples.length - 1];
+  const deltaMs = last.ts - first.ts;
+  const deltaBytes = last.bytes - first.bytes;
+  if (deltaMs < 1000 || deltaBytes <= 0) return null;
+  return deltaBytes / (deltaMs / 1000) / 1_000_000;
+}
+
 // ── CPU polling ──────────────────────────────────────────────────────────────
 
 const NUM_CPUS = cpus().length;
@@ -144,23 +162,26 @@ function clearProgress() {
   }
 }
 
-function drawProgress(timeSec, totalSec, sizeKb, fps, speed, cpuPct = null) {
+function drawProgress(timeSec, totalSec, sizeKb, fps, speed, cpuPct = null, mbps = null) {
   let line;
+  const mbpsPart = mbps != null ? `| ${mbps.toFixed(1)} MB/s |` : null;
   if (totalSec !== null && totalSec > 0 && timeSec !== null && timeSec >= 0) {
     const ratio = Math.min(timeSec / totalSec, 1);
     const pct = Math.round(ratio * 100);
     const parts = [`[${renderBar(ratio)}] ${String(pct).padStart(3)}%`];
     if (fps && fps > 0) parts.push(`fps=${Math.round(fps)}`);
+    if (cpuPct != null) parts.push(`cpu:${Math.round(cpuPct)}%`);
     if (sizeKb) parts.push(fmtSize(sizeKb));
+    if (mbpsPart) parts.push(mbpsPart);
     const eta = fmtEta(timeSec, totalSec, speed);
     if (eta) parts.push(eta);
-    if (cpuPct != null) parts.push(`cpu:${Math.round(cpuPct)}%`);
     line = '  ' + parts.join('  ');
   } else {
     const parts = ['  [encoding...]'];
     if (fps && fps > 0) parts.push(`fps=${Math.round(fps)}`);
-    if (sizeKb) parts.push(fmtSize(sizeKb));
     if (cpuPct != null) parts.push(`cpu:${Math.round(cpuPct)}%`);
+    if (sizeKb) parts.push(fmtSize(sizeKb));
+    if (mbpsPart) parts.push(mbpsPart);
     line = parts.join('  ');
   }
   process.stdout.write('\r' + line.padEnd(process.stdout.columns ?? 80));
@@ -187,15 +208,25 @@ async function runFfmpeg(inputUrl, outputPath, settings) {
     let lastFps = null;
     let lastSpeed = null;
     let lastCpuPct = null;
+    let lastMbps = null;
+    const rateSamples = [];
 
     const args = buildFfmpegArgs(inputUrl, outputPath, settings);
     debug(`nice -n 20 ffmpeg ${args.join(' ')}`);
     const proc = spawn('nice', ['-n', '20', 'ffmpeg', ...args], { stdio: ['ignore', 'inherit', 'pipe'] });
 
-    drawProgress(null, null, null, null, null, null);
+    drawProgress(null, null, null, null, null, null, null);
     const progressInterval = setInterval(() => {
       if (proc.pid) pollCpu(proc.pid, pct => { lastCpuPct = pct; });
-      drawProgress(lastTimeSec, totalDurationSec, lastSizeKb, lastFps, lastSpeed, lastCpuPct);
+      try {
+        const bytes = statSync(outputPath).size;
+        const ts = Date.now();
+        rateSamples.push({ ts, bytes });
+        const cutoff = ts - RATE_WINDOW_MS;
+        while (rateSamples.length > 1 && rateSamples[0].ts < cutoff) rateSamples.shift();
+        lastMbps = computeRateMBs(rateSamples);
+      } catch { /* part file not yet created */ }
+      drawProgress(lastTimeSec, totalDurationSec, lastSizeKb, lastFps, lastSpeed, lastCpuPct, lastMbps);
     }, PROGRESS_INTERVAL_MS);
 
     const watchdog = setTimeout(() => {
