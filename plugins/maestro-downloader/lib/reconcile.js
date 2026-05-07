@@ -1,34 +1,41 @@
 #!/usr/bin/env node
-import { readFileSync, existsSync, statSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { config as dotenvConfig } from 'dotenv';
-import { atomicWriteJson, deriveOutputPath, MIN_COMPLETE_FILE_BYTES } from './index-utils.js';
+import { atomicWriteJson, deriveOutputPath, isFileComplete } from './index-utils.js';
 import { info, warn } from './logger.js';
 
 const ENV_PATH = join(homedir(), '.claude', 'plugins', 'maestro-downloader', '.env');
 dotenvConfig({ path: ENV_PATH, override: false });
 
-// Returns { backfilled, alreadyComplete, missing } counts per course
+// Returns { backfilled, alreadyComplete, partialReset, missing } counts per course
 export function reconcileCourse(course, root) {
   let backfilled = 0;
   let alreadyComplete = 0;
+  let partialReset = 0;
   let missing = 0;
 
   for (const cat of course.categories) {
     for (const video of cat.videos) {
       const expectedPath = deriveOutputPath(root, course.slug, cat.title, video.index, video.title);
-      const onDisk = existsSync(expectedPath) && statSync(expectedPath).size >= MIN_COMPLETE_FILE_BYTES;
 
       if (video.completed) {
-        alreadyComplete++;
+        if (isFileComplete(video.localPath)) {
+          alreadyComplete++;
+        } else {
+          video.completed = false;
+          video.downloadedAt = null;
+          video.localPath = null;
+          partialReset++;
+        }
         continue;
       }
 
-      if (onDisk) {
+      if (isFileComplete(expectedPath)) {
         video.completed = true;
-        video.downloadedAt = video.downloadedAt ?? new Date().toISOString();
+        video.downloadedAt = new Date().toISOString();
         video.localPath = expectedPath;
         backfilled++;
       } else {
@@ -37,7 +44,7 @@ export function reconcileCourse(course, root) {
     }
   }
 
-  return { backfilled, alreadyComplete, missing };
+  return { backfilled, alreadyComplete, partialReset, missing };
 }
 
 async function main() {
@@ -60,24 +67,30 @@ async function main() {
 
   let totalBackfilled = 0;
   let totalAlready = 0;
+  let totalPartialReset = 0;
   let totalMissing = 0;
 
   for (const course of (indexData.courses ?? [])) {
-    const { backfilled, alreadyComplete, missing } = reconcileCourse(course, root);
+    const { backfilled, alreadyComplete, partialReset, missing } = reconcileCourse(course, root);
     totalBackfilled += backfilled;
     totalAlready += alreadyComplete;
+    totalPartialReset += partialReset;
     totalMissing += missing;
-    if (backfilled > 0) {
-      info(`${course.slug}: backfilled ${backfilled} video(s)`);
-    }
+    if (backfilled > 0) info(`${course.slug}: backfilled ${backfilled} video(s)`);
+    if (partialReset > 0) warn(`${course.slug}: reset ${partialReset} partial/missing video(s) for re-download`);
   }
 
-  if (totalBackfilled > 0) {
+  const dirty = totalBackfilled > 0 || totalPartialReset > 0;
+  if (dirty) {
     await atomicWriteJson(indexPath, indexData);
-    info(`\nReconcile complete: ${totalBackfilled} backfilled, ${totalAlready} already marked, ${totalMissing} still missing on disk.`);
-  } else {
-    info(`Reconcile complete: nothing to backfill. ${totalAlready} already marked, ${totalMissing} still missing on disk.`);
   }
+  const parts = [
+    totalBackfilled > 0 ? `${totalBackfilled} backfilled` : null,
+    totalPartialReset > 0 ? `${totalPartialReset} partial reset` : null,
+    `${totalAlready} already complete`,
+    `${totalMissing} still missing`,
+  ].filter(Boolean);
+  info(`\nReconcile complete: ${parts.join(', ')}.`);
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) main();
