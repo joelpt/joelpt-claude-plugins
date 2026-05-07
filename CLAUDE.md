@@ -44,7 +44,7 @@ If `GITHUB_TOKEN` (or `GH_TOKEN`) is set in the user's env with `repo` scope, th
 
 ```bash
 cd ~/code/claude-plugins
-# Bump version in plugins/<name>/.claude-plugin/plugin.json (patch minimum)
+# Step 1 (REQUIRED): bump version in plugins/<name>/.claude-plugin/plugin.json before staging
 git add plugins/<name>
 git commit -m "<plugin>: <change>"
 git push
