@@ -55,6 +55,11 @@
       "name": "commit-commands",
       "source": "./plugins/commit-commands",
       "description": "Atomic git commits with code review + simplify pre-flight, enforcing project git rules. Replaces claude-plugins-official commit-commands."
+    },
+    {
+      "name": "jack",
+      "source": "./plugins/jack/jack",
+      "description": "Jack (Jacquard) — autonomous development orchestration plugin: pipeline, swarm, yolo modes; multi-agent reviewers; loom + flight recorder + blackboard. Sourced as a sparse-checkout submodule of joelpt/iloom-inside."
     }
   ]
 }
