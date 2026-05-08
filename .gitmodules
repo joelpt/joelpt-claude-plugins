@@ -7,3 +7,4 @@
 [submodule "plugins/jack"]
 	path = plugins/jack
 	url = https://github.com/joelpt/iloom-inside.git
+	branch = main
