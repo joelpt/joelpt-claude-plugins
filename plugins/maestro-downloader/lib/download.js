@@ -415,7 +415,7 @@ async function attemptSegmentSkip(variantUrl, partPath, outputPath, settings, ba
 
 async function downloadVideoWithBackoff(inputUrl, outputPath, settings) {
   const partPath = derivePartPath(outputPath);
-  const delays = [5000, 10000, 20000, 40000, 60000];
+  const delays = [30, 60, 60, 90, 90].map(e => e * 1000 * 60);
   const stallFrames = [];
   let lastStderr = '';
   let lastSegmentUrl = null;
