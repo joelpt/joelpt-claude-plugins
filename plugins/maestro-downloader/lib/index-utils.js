@@ -126,13 +126,13 @@ export function getEncoderSettings(profile, archive = false) {
     },
     // Lean: audio-primary content where visuals barely matter
     lean: {
-      resolution: '360p',
-      crf: 42,
+      resolution: '720p',
+      crf: 46,
       preset: archive ? 3 : 6,
       audioBitrate: '48k',
       gopSize: 600,
       svtav1Params: baseParams,
-      description: `360p lean (audio-primary)${archive ? ' (archive, slow)' : ''}`,
+      description: `720p lean (audio-primary)${archive ? ' (archive, slow)' : ''}`,
     },
   };
 
