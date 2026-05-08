@@ -4,3 +4,6 @@
 [submodule "plugins/deep-research/upstream"]
 	path = plugins/deep-research/upstream
 	url = https://github.com/Imbad0202/academic-research-skills.git
+[submodule "plugins/jack"]
+	path = plugins/jack
+	url = https://github.com/joelpt/iloom-inside.git
