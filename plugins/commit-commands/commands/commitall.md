@@ -1,6 +1,7 @@
 ---
 name: commitall
 description: Commit ALL uncommitted changes as semantically atomic conventional commits with code review and simplify pre-flight. Ignore session-only restriction.
+model: haiku
 allowed-tools: Bash(git status:*), Bash(git diff:*), Bash(git log:*), Bash(git branch:*), Bash(git add:*), Bash(git commit:*), Bash(mktemp:*), Bash(rm:*)
 ---
 
@@ -10,7 +11,6 @@ allowed-tools: Bash(git status:*), Bash(git diff:*), Bash(git log:*), Bash(git b
 - Change summary: !`git diff --stat`
 - Staged summary: !`git diff --staged --stat`
 - Recent commits: !`git log --oneline -10`
-- Branch: !`git branch --show-current`
 
 ## Pre-flight (MANDATORY)
 
@@ -22,8 +22,8 @@ allowed-tools: Bash(git status:*), Bash(git diff:*), Bash(git log:*), Bash(git b
 1. Check whether changes are non-trivial: any source-code files changed (`.ts`, `.js`, `.py`, `.sh`, `.go`, `.rb`, `.rs`, `.c`, `.cpp`, etc.).
    If non-trivial: `Agent(subagent_type: "superpowers:code-reviewer", prompt: "Full diff is at <DIFF_FILE> — read it to review all changes.")` — show full findings; auto-fix Critical/Important.
    Skip if all changes are docs, config, or data files only (`.md`, `.json`, `.yaml`, `.toml`, `.txt`, lock files, etc.).
-2. `Skill(simplify)` on all changed files (pass 1). If changes AND code reviewer was run: re-run code reviewer (pass `<DIFF_FILE>` path again), auto-fix, simplify again (pass 2).
-   If still changing after pass 2 — **STOP**, explain to user; do not commit.
+2. `Skill(simplify)` on all changed files (pass 1). Regenerate diff file: `Bash("git diff > \"$DIFF_FILE\"")`. If changes AND code reviewer was run: re-run code reviewer (pass `<DIFF_FILE>` path again), auto-fix, simplify again (pass 2).
+   After pass 2 (if simplify was run twice): regenerate diff file again: `Bash("git diff > \"$DIFF_FILE\"")`, then check for continued changes: `Bash("git diff --quiet || echo CHANGED")`. If output is `CHANGED`, **STOP**, explain to user; do not commit.
 3. If reviewer found **any** issues (Critical, Important, minor, or suggestions): `AskUserQuestion` "Found N issues and M suggestions. Fix any before committing, or proceed?"
    If reviewer was skipped or found **zero findings**: skip this step and proceed directly to the commit loop.
 

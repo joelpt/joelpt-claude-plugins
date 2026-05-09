@@ -1,6 +1,7 @@
 ---
 name: commit
 description: Atomic git commit of current session changes with mandatory code review and simplify pre-flight.
+model: haiku
 allowed-tools: Bash(git status:*), Bash(git diff:*), Bash(git log:*), Bash(git branch:*), Bash(git add:*), Bash(git commit:*)
 ---
 
@@ -10,7 +11,6 @@ allowed-tools: Bash(git status:*), Bash(git diff:*), Bash(git log:*), Bash(git b
 - Unstaged changes: !`git diff`
 - Staged changes: !`git diff --staged`
 - Recent commits (for message style): !`git log --oneline -10`
-- Current branch: !`git branch --show-current`
 
 ## Phase 1: Code Review (MANDATORY)
 
