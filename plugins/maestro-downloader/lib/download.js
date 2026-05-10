@@ -15,7 +15,7 @@ const debugEnabled = process.env.DEBUG === 'true' || process.argv.includes('--de
 
 
 const FFMPEG_TIMEOUT_MS = 20 * 60 * 1000;
-const FRAME_STALL_MS = 180_000;
+const FRAME_STALL_MS = 600_000;
 const MIN_STALL_FRAME = 100;
 const PROGRESS_INTERVAL_MS = 1_000;
 
