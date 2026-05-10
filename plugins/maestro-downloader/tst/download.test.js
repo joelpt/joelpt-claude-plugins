@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { readFileSync, writeFileSync, mkdirSync, existsSync, mkdtempSync } from 'node:fs';
 
-import { isRateLimitError, isNetworkError, recordCompletion, parseLastFrame, extractBadSegmentUrl, patchManifest, isConsistentStall, parseTimeSeconds, parseDurationSec, parseFfmpegProgress, fmtSize, fmtEta, fmtElapsed, fmtTimestamp, needsDownload, sweepPartFiles, derivePartPath, runCourse, computeRateMBs, isProgressLine } from '../lib/download.js';
+import { isRateLimitError, isNetworkError, recordCompletion, parseLastFrame, parseTimeSeconds, parseDurationSec, parseFfmpegProgress, fmtSize, fmtEta, fmtElapsed, fmtTimestamp, needsDownload, sweepPartFiles, derivePartPath, runCourse, computeRateMBs, isProgressLine, downloadVideoWithBackoff, DOWNLOAD_DELAYS_MS, DOWNLOAD_FALLBACK_DELAYS_MS, CDN_STALL_PAUSE_MS } from '../lib/download.js';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -216,111 +216,6 @@ test('parseLastFrame: handles frame=0 (startup)', () => {
   assert.equal(parseLastFrame('frame=    0 fps=0.0 q=0.0 size=       0KiB'), 0);
 });
 
-// ── extractBadSegmentUrl ──────────────────────────────────────────────────────
-
-test('extractBadSegmentUrl: extracts .ts URL from single Opening line', () => {
-  const stderr = "[https @ 0x7f] Opening 'https://cdn.example.com/HLS/video_00045.ts' for reading";
-  assert.equal(extractBadSegmentUrl(stderr), 'https://cdn.example.com/HLS/video_00045.ts');
-});
-
-test('extractBadSegmentUrl: returns the LAST .ts URL when multiple present', () => {
-  const stderr = [
-    "[https @ 0x7f] Opening 'https://cdn.example.com/HLS/video_00044.ts' for reading",
-    "frame= 1234 fps=18",
-    "[https @ 0x7f] Opening 'https://cdn.example.com/HLS/video_00045.ts' for reading",
-    "frame= 1234 fps=18",
-  ].join('\n');
-  assert.equal(extractBadSegmentUrl(stderr), 'https://cdn.example.com/HLS/video_00045.ts');
-});
-
-test('extractBadSegmentUrl: returns null when no .ts URL present', () => {
-  assert.equal(extractBadSegmentUrl('frame= 100 fps=18 q=30.0'), null);
-});
-
-test('extractBadSegmentUrl: returns null for empty string', () => {
-  assert.equal(extractBadSegmentUrl(''), null);
-});
-
-// ── patchManifest ─────────────────────────────────────────────────────────────
-
-const SAMPLE_MANIFEST = [
-  '#EXTM3U',
-  '#EXT-X-VERSION:3',
-  '#EXT-X-TARGETDURATION:7',
-  '#EXTINF:6.006,',
-  'https://cdn.example.com/HLS/video_00044.ts',
-  '#EXTINF:6.006,',
-  'https://cdn.example.com/HLS/video_00045.ts',
-  '#EXTINF:6.006,',
-  'https://cdn.example.com/HLS/video_00046.ts',
-  '#EXT-X-ENDLIST',
-].join('\n');
-
-test('patchManifest: removes the target segment and its preceding EXTINF line', () => {
-  const result = patchManifest(SAMPLE_MANIFEST, 'https://cdn.example.com/HLS/video_00045.ts');
-  assert.ok(!result.includes('video_00045.ts'), 'bad segment URL should be removed');
-  const lines = result.split('\n').filter(l => l.startsWith('#EXTINF:'));
-  assert.equal(lines.length, 2, 'should have 2 EXTINF lines remaining (one per kept segment)');
-});
-
-test('patchManifest: keeps all other segments intact', () => {
-  const result = patchManifest(SAMPLE_MANIFEST, 'https://cdn.example.com/HLS/video_00045.ts');
-  assert.ok(result.includes('video_00044.ts'));
-  assert.ok(result.includes('video_00046.ts'));
-});
-
-test('patchManifest: matches by filename when manifest uses relative paths', () => {
-  const relativeManifest = [
-    '#EXTM3U',
-    '#EXTINF:6.006,',
-    'video_00044.ts',
-    '#EXTINF:6.006,',
-    'video_00045.ts',
-    '#EXT-X-ENDLIST',
-  ].join('\n');
-  const result = patchManifest(relativeManifest, 'https://cdn.example.com/HLS/video_00045.ts');
-  assert.ok(!result.includes('video_00045.ts'));
-  assert.ok(result.includes('video_00044.ts'));
-});
-
-test('patchManifest: returns manifest unchanged when segment not found', () => {
-  const result = patchManifest(SAMPLE_MANIFEST, 'https://cdn.example.com/HLS/video_99999.ts');
-  assert.equal(result, SAMPLE_MANIFEST);
-});
-
-// ── isConsistentStall ─────────────────────────────────────────────────────────
-
-test('isConsistentStall: returns true for two identical frame counts', () => {
-  assert.equal(isConsistentStall([5246, 5246]), true);
-});
-
-test('isConsistentStall: returns true when frames are within 10% of each other', () => {
-  // 5000 and 5499 → spread = 499/5499 = 9.07% < 10%
-  assert.equal(isConsistentStall([5000, 5499]), true);
-});
-
-test('isConsistentStall: returns false when frames exceed 10% spread', () => {
-  // 5000 and 6000 → spread = 1000/6000 = 16.7% > 10%
-  assert.equal(isConsistentStall([5000, 6000]), false);
-});
-
-test('isConsistentStall: returns false for a single element', () => {
-  assert.equal(isConsistentStall([5246]), false);
-});
-
-test('isConsistentStall: returns false for empty array', () => {
-  assert.equal(isConsistentStall([]), false);
-});
-
-test('isConsistentStall: returns true across 5 near-identical stall points (realistic retry set)', () => {
-  // Simulate 5 retries all stalling at ~5246 ± tiny jitter
-  assert.equal(isConsistentStall([5246, 5249, 5246, 5248, 5247]), true);
-});
-
-test('isConsistentStall: returns false when early failure mixed with deep stall (WiFi scenario)', () => {
-  // First retry stalled deep; second retry failed at frame 0 (WiFi gone)
-  assert.equal(isConsistentStall([5246, 0]), false);
-});
 
 // ── parseTimeSeconds ──────────────────────────────────────────────────────────
 
@@ -734,4 +629,92 @@ test('finalizePart: accepts Cues element with CRC-32 (0xBF) first content byte (
   assert.equal(ok, true, 'must accept valid Cues regardless of first content byte');
   assert.equal(existsSync(outputPath), true);
   assert.equal(existsSync(partPath), false);
+});
+
+// ── downloadVideoWithBackoff ──────────────────────────────────────────────────
+
+const CDN_STALL_RESULT = { code: 1, stderr: '', killedForStall: true, stallFrame: 500, lastSegmentUrl: null };
+const LOW_FRAME_STALL_RESULT = { code: 1, stderr: '', killedForStall: true, stallFrame: 50, lastSegmentUrl: null };
+const NETWORK_ERROR_RESULT = { code: 1, stderr: 'Connection reset by peer', killedForStall: false, stallFrame: null, lastSegmentUrl: null };
+const SUCCESS_RESULT = { code: 0, stderr: '', killedForStall: false, stallFrame: null, lastSegmentUrl: null };
+
+test('DOWNLOAD_FALLBACK_DELAYS_MS are one-quarter of DOWNLOAD_DELAYS_MS', () => {
+  assert.equal(DOWNLOAD_FALLBACK_DELAYS_MS.length, DOWNLOAD_DELAYS_MS.length);
+  for (let i = 0; i < DOWNLOAD_DELAYS_MS.length; i++) {
+    assert.equal(DOWNLOAD_FALLBACK_DELAYS_MS[i], Math.round(DOWNLOAD_DELAYS_MS[i] / 4));
+  }
+});
+
+test('downloadVideoWithBackoff: returns success on first attempt without sleeping', async () => {
+  const slept = [];
+  const result = await downloadVideoWithBackoff('https://cdn/v.m3u8', '/out/v.webm', {}, {
+    _runFfmpeg: async () => SUCCESS_RESULT,
+    _finalizePart: () => true,
+    _sleep: (ms) => { slept.push(ms); return Promise.resolve(); },
+  });
+  assert.equal(result.success, true);
+  assert.equal(slept.length, 0);
+});
+
+test('downloadVideoWithBackoff: pauses CDN_STALL_PAUSE_MS after 1st CDN stall, then succeeds', async () => {
+  const slept = [];
+  let call = 0;
+  const result = await downloadVideoWithBackoff('https://cdn/v.m3u8', '/out/v.webm', {}, {
+    _runFfmpeg: async () => (++call === 1 ? CDN_STALL_RESULT : SUCCESS_RESULT),
+    _finalizePart: () => true,
+    _sleep: (ms) => { slept.push(ms); return Promise.resolve(); },
+  });
+  assert.equal(result.success, true);
+  assert.equal(slept.length, 1);
+  assert.equal(slept[0], CDN_STALL_PAUSE_MS);
+});
+
+test('downloadVideoWithBackoff: returns {success:false, reason:"stall"} after 2 CDN stalls', async () => {
+  const result = await downloadVideoWithBackoff('https://cdn/v.m3u8', '/out/v.webm', {}, {
+    _runFfmpeg: async () => CDN_STALL_RESULT,
+    _finalizePart: () => false,
+    _sleep: () => Promise.resolve(),
+  });
+  assert.equal(result.success, false);
+  assert.equal(result.reason, 'stall');
+});
+
+test('downloadVideoWithBackoff: CDN stall below MIN_STALL_FRAME consumes a delay slot, not CDN pause', async () => {
+  const slept = [];
+  const result = await downloadVideoWithBackoff('https://cdn/v.m3u8', '/out/v.webm', {}, {
+    delays: [100],
+    _runFfmpeg: async () => LOW_FRAME_STALL_RESULT,
+    _finalizePart: () => false,
+    _sleep: (ms) => { slept.push(ms); return Promise.resolve(); },
+  });
+  assert.equal(result.success, false);
+  assert.ok(slept.includes(100), `expected delay 100 in slept: ${JSON.stringify(slept)}`);
+  assert.ok(!slept.includes(CDN_STALL_PAUSE_MS), 'must not use CDN_STALL_PAUSE_MS for sub-threshold stalls');
+});
+
+test('downloadVideoWithBackoff: network error retries per delay array until exhausted', async () => {
+  const slept = [];
+  const result = await downloadVideoWithBackoff('https://cdn/v.m3u8', '/out/v.webm', {}, {
+    delays: [10, 20],
+    _runFfmpeg: async () => NETWORK_ERROR_RESULT,
+    _finalizePart: () => false,
+    _sleep: (ms) => { slept.push(ms); return Promise.resolve(); },
+  });
+  assert.equal(result.success, false);
+  assert.deepEqual(slept, [10, 20]);
+});
+
+test('downloadVideoWithBackoff: truncated exit-0 retries and returns reason "truncated"', async () => {
+  // ffmpeg exits 0 but _finalizePart returns false (no Matroska trailer) — should
+  // retry the configured number of times then give up with reason "truncated"
+  const slept = [];
+  const result = await downloadVideoWithBackoff('https://cdn/v.m3u8', '/out/v.webm', {}, {
+    delays: [5],
+    _runFfmpeg: async () => ({ code: 0, stderr: '', killedForStall: false, stallFrame: null, lastSegmentUrl: null }),
+    _finalizePart: () => false,
+    _sleep: (ms) => { slept.push(ms); return Promise.resolve(); },
+  });
+  assert.equal(result.success, false);
+  assert.equal(result.reason, 'truncated');
+  assert.deepEqual(slept, [5]);
 });

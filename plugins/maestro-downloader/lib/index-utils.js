@@ -156,6 +156,7 @@ export function buildFfmpegArgs(inputUrl, outputPath, settings) {
     '-timeout', '30000000',       // 30s socket read timeout — prevents infinite CDN segment hangs
     '-reconnect', '1',
     '-reconnect_streamed', '1',
+    '-reconnect_on_network_error', '1',
     '-reconnect_delay_max', '5',
     '-i', inputUrl,
     '-map', '0:v:0',

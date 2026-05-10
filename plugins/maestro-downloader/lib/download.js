@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawn, execFile } from 'node:child_process';
-import { readFileSync, writeFileSync, mkdirSync, existsSync, statSync, mkdtempSync, rmSync, readdirSync, unlinkSync, renameSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, statSync, readdirSync, unlinkSync, renameSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { homedir, tmpdir, cpus } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -15,10 +15,13 @@ const debugEnabled = process.env.DEBUG === 'true' || process.argv.includes('--de
 
 
 const FFMPEG_TIMEOUT_MS = 20 * 60 * 1000;
-const FRAME_STALL_MS = 45_000;
+const FRAME_STALL_MS = 180_000;
 const MIN_STALL_FRAME = 100;
-const MIN_SKIP_OUTPUT_BYTES = 1_000_000;
 const PROGRESS_INTERVAL_MS = 1_000;
+
+export const DOWNLOAD_DELAYS_MS = [30, 60, 60, 90, 90].map(e => e * 1000 * 60);
+export const DOWNLOAD_FALLBACK_DELAYS_MS = DOWNLOAD_DELAYS_MS.map(d => Math.round(d / 4));
+export const CDN_STALL_PAUSE_MS = 3 * 60 * 1000;
 
 // ── Progress helpers (pure, exported for tests) ───────────────────────────────
 
@@ -340,149 +343,70 @@ export async function recordCompletion(indexPath, courseSlug, lessonUrl, outputP
   await atomicWriteJson(indexPath, fresh);
 }
 
-export function extractBadSegmentUrl(stderrBuf) {
-  const matches = [...stderrBuf.matchAll(/Opening '(https?:\/\/[^']+\.ts)' for reading/g)];
-  return matches.length > 0 ? matches[matches.length - 1][1] : null;
-}
 
-export function patchManifest(manifestText, badSegmentUrl) {
-  const badFilename = badSegmentUrl.split('/').pop();
-  const lines = manifestText.split('\n');
-  const result = [];
-  for (let i = 0; i < lines.length; i++) {
-    const trimmed = lines[i].trim();
-    if (trimmed === badSegmentUrl || trimmed.endsWith(badFilename)) {
-      if (result.length > 0 && result[result.length - 1].trimStart().startsWith('#EXTINF:')) {
-        result.pop();
-      }
-      continue;
-    }
-    result.push(lines[i]);
-  }
-  return result.join('\n');
-}
-
-export function isConsistentStall(stallFrames) {
-  if (stallFrames.length < 2) return false;
-  const max = Math.max(...stallFrames);
-  const min = Math.min(...stallFrames);
-  return max === 0 ? false : (max - min) / max < 0.10;
-}
-
-async function fetchManifest(url) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 10_000);
-  try {
-    const res = await fetch(url, { signal: controller.signal });
-    return res.ok ? res.text() : null;
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-async function attemptSegmentSkip(variantUrl, partPath, outputPath, settings, badSegmentUrl) {
-  const segName = badSegmentUrl.split('/').pop();
-  info(`  [patch] Bad segment: ${segName} — fetching manifest to skip it`);
-  const manifestText = await fetchManifest(variantUrl);
-  if (!manifestText) {
-    warn('  [patch] Could not fetch manifest — skipping video');
-    return false;
-  }
-  const patched = patchManifest(manifestText, badSegmentUrl);
-  if (patched === manifestText) {
-    warn(`  [patch] Segment ${segName} not found in manifest — skipping video`);
-    return false;
-  }
-  info(`  [patch] Patched out ${segName}, re-encoding without it`);
-  const tmpDir = mkdtempSync(join(tmpdir(), 'maestro-skip-'));
-  const tmpManifest = join(tmpDir, 'playlist.m3u8');
-  try {
-    writeFileSync(tmpManifest, patched);
-    const { code } = await runFfmpeg(`file://${tmpManifest}`, partPath, settings);
-    if (code !== 0) {
-      warn(`  [patch] Re-encode exited ${code} — video failed`);
-      return false;
-    }
-    const { size } = statSync(partPath);
-    if (size < MIN_SKIP_OUTPUT_BYTES) {
-      warn(`  [patch] Output only ${fmtSize(Math.round(size / 1024))} — likely connectivity loss, discarding`);
-      return false;
-    }
-    if (!finalizePart(partPath, outputPath)) {
-      warn(`  [patch] Output lacks Matroska trailer — truncated, discarding`);
-      return false;
-    }
-    info(`  [patch] Succeeded — ${segName} omitted from final file`);
-    return true;
-  } finally {
-    rmSync(tmpDir, { recursive: true, force: true });
-  }
-}
-
-async function downloadVideoWithBackoff(inputUrl, outputPath, settings) {
+export async function downloadVideoWithBackoff(inputUrl, outputPath, settings, {
+  delays = DOWNLOAD_DELAYS_MS,
+  _runFfmpeg = runFfmpeg,
+  _sleep = sleep,
+  _finalizePart = finalizePart,
+} = {}) {
   const partPath = derivePartPath(outputPath);
-  const delays = [30, 60, 60, 90, 90].map(e => e * 1000 * 60);
-  const stallFrames = [];
   let lastStderr = '';
-  let lastSegmentUrl = null;
   let lastReason = 'encode-error';
+  let stallCount = 0;
+  let nonStallAttempt = 0;
 
-  for (let attempt = 0; attempt <= delays.length; attempt++) {
-    if (attempt > 0) {
-      info(`  [${fmtTimestamp()}] [attempt ${attempt + 1}/${delays.length + 1}] retrying...`);
+  while (true) {
+    if (nonStallAttempt > 0 || stallCount > 0) {
+      info(`  [${fmtTimestamp()}] [attempt ${nonStallAttempt + 1}] retrying...`);
     }
-    const { code, stderr, killedForStall, stallFrame, lastSegmentUrl: segUrl } = await runFfmpeg(inputUrl, partPath, settings);
+    const { code, stderr, killedForStall, stallFrame } = await _runFfmpeg(inputUrl, partPath, settings);
     lastStderr = stderr;
-    if (segUrl) lastSegmentUrl = segUrl;
     let truncatedExit0 = false;
     if (code === 0) {
-      if (finalizePart(partPath, outputPath)) return { success: true };
-      // ffmpeg exited 0 but produced a file without a Matroska Cues trailer —
-      // happens when the HLS reader EOFs after exhausting segment retries.
-      // Treat as retry-able rather than silently promoting a truncated file.
+      if (_finalizePart(partPath, outputPath)) return { success: true };
+      // ffmpeg exited 0 but no Matroska trailer — HLS reader EOF'd after segment retries.
       const snippet = lastStderr.trim().split('\n').pop()?.slice(-120) ?? '';
       warn(`  ffmpeg exited 0 but output lacks Matroska trailer — truncated, will retry${snippet ? ': ' + snippet : ''}`);
       truncatedExit0 = true;
     }
 
-    if (killedForStall && stallFrame !== null && stallFrame >= MIN_STALL_FRAME) {
-      stallFrames.push(stallFrame);
-    }
+    const isCdnStall = killedForStall && stallFrame !== null && stallFrame >= MIN_STALL_FRAME;
 
-    if (stallFrames.length >= 3 && isConsistentStall(stallFrames)) {
-      if (lastSegmentUrl) {
-        const ok = await attemptSegmentSkip(inputUrl, partPath, outputPath, settings, lastSegmentUrl);
-        return ok ? { success: true } : { success: false, reason: 'stall' };
+    if (isCdnStall) {
+      stallCount++;
+      if (stallCount >= 2) {
+        return { success: false, reason: 'stall' };
       }
+      info(`  [${fmtTimestamp()}] CDN stall at frame ${stallFrame} — pausing ${Math.round(CDN_STALL_PAUSE_MS / 60000)}m then retrying at same quality`);
+      await _sleep(CDN_STALL_PAUSE_MS);
+      continue;
     }
 
     const isRl = isRateLimitError(stderr);
     const isNet = isNetworkError(stderr);
     const retriable = isRl || isNet || killedForStall || truncatedExit0;
 
-    if (killedForStall) lastReason = 'stall';
+    if (killedForStall) lastReason = 'network';
     else if (isRl) lastReason = 'rate-limit';
     else if (truncatedExit0) lastReason = 'truncated';
     else if (isNet) lastReason = 'network';
     else lastReason = 'encode-error';
 
-    if (!retriable || attempt === delays.length) {
+    if (!retriable || nonStallAttempt >= delays.length) {
       const snippet = lastStderr.trim().split('\n').pop()?.slice(-120) ?? '';
       warn(`  ffmpeg failed (exit ${code})${snippet ? ': ' + snippet : ''}`);
       return { success: false, reason: lastReason };
     }
 
-    const wait = delays[attempt];
-    const retryLabel = lastReason === 'stall' ? `CDN stall at frame ${stallFrame}`
-      : lastReason === 'rate-limit' ? 'rate limited (429/503)'
+    const wait = delays[nonStallAttempt];
+    const retryLabel = lastReason === 'rate-limit' ? 'rate limited (429/503)'
       : lastReason === 'truncated' ? 'truncated output (HLS retry exhausted)'
       : 'network error';
-    info(`  [retry ${attempt + 1}/${delays.length}] ${retryLabel} — waiting ${Math.round(wait / 60000)}m`);
-    await sleep(wait);
+    info(`  [retry ${nonStallAttempt + 1}/${delays.length}] ${retryLabel} — waiting ${Math.round(wait / 60000)}m`);
+    await _sleep(wait);
+    nonStallAttempt++;
   }
-  return { success: false, reason: lastReason };
 }
 
 // Runs all pending downloads for one course. Caller is responsible for sweeping
@@ -558,15 +482,15 @@ export async function runCourse(courseSlug, root, indexPath, { profile = null, a
 
     if (!result.success && encoderSettings.resolution === '1080p' && result.reason !== 'rate-limit') {
       const fallbackUrl = deriveManifestUrl(video.manifestUrl, '720p');
-      const cdnRelated = result.reason === 'stall' || result.reason === 'network' || result.reason === 'truncated';
-      if (cdnRelated) {
+      // stall already paused CDN_STALL_PAUSE_MS internally before giving up — no extra cooldown needed
+      if (result.reason === 'network' || result.reason === 'truncated') {
         const cooldown = jitter(60_000, 120_000);
         info(`  [${fmtTimestamp()}] [720p fallback] 1080p exhausted (${result.reason}) — cooling ${Math.round(cooldown / 1000)}s then retrying at 720p`);
         await sleep(cooldown);
       } else {
         info(`  [${fmtTimestamp()}] [720p fallback] 1080p exhausted (${result.reason}) — retrying at 720p`);
       }
-      result = await downloadVideoWithBackoff(fallbackUrl, outputPath, encoderSettings);
+      result = await downloadVideoWithBackoff(fallbackUrl, outputPath, encoderSettings, { delays: DOWNLOAD_FALLBACK_DELAYS_MS });
       if (result.success) actualResolution = '720p';
     }
 

@@ -139,7 +139,8 @@ ui/index.html
   replacing `.m3u8` with `_1080.m3u8`. Spawns ffmpeg subprocess. Updates `index.json`
   after each successful video.
 - **Rate limiting**: `/fetch-list` uses `setTimeout` with `Math.random()` for jitter.
-  `/download` uses exponential backoff (10s → 20s → 40s) on ffmpeg HTTP errors.
+  `/download` uses stepped backoff (30m → 60m → 60m → 90m → 90m) on network/rate-limit errors,
+  and a separate 3-minute CDN-stall pause between same-quality retries (up to 2 stalls before 720p fallback).
 - **Resumability**: `index.json` is written after each completed video; reruns skip
   `completed: true` entries.
 - **Environment**: `.env` in `~/.claude/plugins/maestro-downloader/` (never committed).

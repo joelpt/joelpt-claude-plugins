@@ -475,6 +475,16 @@ test('buildFfmpegArgs: includes reconnect flags before -i to prevent CDN segment
   assert.equal(preamble[reconnectDelayIdx + 1], '5');
 });
 
+test('buildFfmpegArgs: includes -reconnect_on_network_error 1 to reconnect on TCP/TLS errors', () => {
+  const settings = getEncoderSettings('speech', false);
+  const args = buildFfmpegArgs('https://cdn.example.com/video_1080.m3u8', '/out/video.webm', settings);
+  const iIdx = args.indexOf('-i');
+  const preamble = args.slice(0, iIdx);
+  const idx = preamble.indexOf('-reconnect_on_network_error');
+  assert.ok(idx !== -1, '-reconnect_on_network_error must be present before -i');
+  assert.equal(preamble[idx + 1], '1');
+});
+
 test('buildFfmpegArgs: output path is last arg', () => {
   const settings = getEncoderSettings('speech', false);
   const args = buildFfmpegArgs('https://cdn.example.com/video_1080.m3u8', '/out/video.webm', settings);
