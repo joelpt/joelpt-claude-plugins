@@ -67,6 +67,13 @@ export function fmtElapsed(ms) {
   return m > 0 ? `${m}m${s % 60}s` : `${s}s`;
 }
 
+export function fmtTimestamp(date = new Date()) {
+  const h = String(date.getHours()).padStart(2, '0');
+  const m = String(date.getMinutes()).padStart(2, '0');
+  const s = String(date.getSeconds()).padStart(2, '0');
+  return `${h}:${m}:${s}`;
+}
+
 // Returns true if the video needs to be (re-)downloaded.
 export function needsDownload(video) {
   if (!video.completed) return true;
@@ -310,7 +317,7 @@ export function parseLastFrame(stderrBuf) {
   return parseInt(matches[matches.length - 1].replace(/frame=\s*/, ''), 10);
 }
 
-export async function recordCompletion(indexPath, courseSlug, lessonUrl, outputPath) {
+export async function recordCompletion(indexPath, courseSlug, lessonUrl, outputPath, resolution = null) {
   const fresh = JSON.parse(readFileSync(indexPath, 'utf8'));
   const course = (fresh.courses ?? []).find(c => c.slug === courseSlug);
   if (!course) throw new Error(`Course not found in index: ${courseSlug}`);
@@ -323,6 +330,7 @@ export async function recordCompletion(indexPath, courseSlug, lessonUrl, outputP
         completed: true,
         downloadedAt: new Date().toISOString(),
         localPath: outputPath,
+        ...(resolution !== null && { actualResolution: resolution }),
       };
       found = true;
       break;
@@ -419,17 +427,18 @@ async function downloadVideoWithBackoff(inputUrl, outputPath, settings) {
   const stallFrames = [];
   let lastStderr = '';
   let lastSegmentUrl = null;
+  let lastReason = 'encode-error';
 
   for (let attempt = 0; attempt <= delays.length; attempt++) {
     if (attempt > 0) {
-      info(`  [attempt ${attempt + 1}/${delays.length + 1}] retrying...`);
+      info(`  [${fmtTimestamp()}] [attempt ${attempt + 1}/${delays.length + 1}] retrying...`);
     }
     const { code, stderr, killedForStall, stallFrame, lastSegmentUrl: segUrl } = await runFfmpeg(inputUrl, partPath, settings);
     lastStderr = stderr;
     if (segUrl) lastSegmentUrl = segUrl;
     let truncatedExit0 = false;
     if (code === 0) {
-      if (finalizePart(partPath, outputPath)) return true;
+      if (finalizePart(partPath, outputPath)) return { success: true };
       // ffmpeg exited 0 but produced a file without a Matroska Cues trailer —
       // happens when the HLS reader EOFs after exhausting segment retries.
       // Treat as retry-able rather than silently promoting a truncated file.
@@ -443,25 +452,37 @@ async function downloadVideoWithBackoff(inputUrl, outputPath, settings) {
     }
 
     if (stallFrames.length >= 3 && isConsistentStall(stallFrames)) {
-      if (lastSegmentUrl) return attemptSegmentSkip(inputUrl, partPath, outputPath, settings, lastSegmentUrl);
+      if (lastSegmentUrl) {
+        const ok = await attemptSegmentSkip(inputUrl, partPath, outputPath, settings, lastSegmentUrl);
+        return ok ? { success: true } : { success: false, reason: 'stall' };
+      }
     }
 
-    const retriable = isRateLimitError(stderr) || isNetworkError(stderr) || killedForStall || truncatedExit0;
+    const isRl = isRateLimitError(stderr);
+    const isNet = isNetworkError(stderr);
+    const retriable = isRl || isNet || killedForStall || truncatedExit0;
+
+    if (killedForStall) lastReason = 'stall';
+    else if (isRl) lastReason = 'rate-limit';
+    else if (truncatedExit0) lastReason = 'truncated';
+    else if (isNet) lastReason = 'network';
+    else lastReason = 'encode-error';
+
     if (!retriable || attempt === delays.length) {
       const snippet = lastStderr.trim().split('\n').pop()?.slice(-120) ?? '';
       warn(`  ffmpeg failed (exit ${code})${snippet ? ': ' + snippet : ''}`);
-      return false;
+      return { success: false, reason: lastReason };
     }
 
     const wait = delays[attempt];
-    const reason = killedForStall ? `CDN stall at frame ${stallFrame}`
-      : isRateLimitError(stderr) ? 'rate limited (429/503)'
-      : truncatedExit0 ? 'truncated output (HLS retry exhausted)'
+    const retryLabel = lastReason === 'stall' ? `CDN stall at frame ${stallFrame}`
+      : lastReason === 'rate-limit' ? 'rate limited (429/503)'
+      : lastReason === 'truncated' ? 'truncated output (HLS retry exhausted)'
       : 'network error';
-    info(`  [retry ${attempt + 1}/${delays.length}] ${reason} — waiting ${wait / 1000}s`);
+    info(`  [retry ${attempt + 1}/${delays.length}] ${retryLabel} — waiting ${Math.round(wait / 60000)}m`);
     await sleep(wait);
   }
-  return false;
+  return { success: false, reason: lastReason };
 }
 
 // Runs all pending downloads for one course. Caller is responsible for sweeping
@@ -525,22 +546,37 @@ export async function runCourse(courseSlug, root, indexPath, { profile = null, a
     const outputPath = deriveOutputPath(root, course.slug, video.categoryTitle, video.index, video.title);
 
     const redownloadTag = video.completed ? '  [re-download: file missing or incomplete]' : '';
-    info(`\n[${downloaded + failed + 1}/${pending.length}] ${video.index}. ${video.title}${redownloadTag}`);
+    info(`\n[${fmtTimestamp()}] [${downloaded + failed + 1}/${pending.length}] ${video.index}. ${video.title}${redownloadTag}`);
     info(`  Category: ${video.categoryTitle}`);
     info(`  Output:   ${outputPath}`);
 
     mkdirSync(dirname(outputPath), { recursive: true });
 
     const videoStart = Date.now();
-    const success = await downloadVideoWithBackoff(inputUrl, outputPath, encoderSettings);
+    let result = await downloadVideoWithBackoff(inputUrl, outputPath, encoderSettings);
+    let actualResolution = null;
 
-    if (success) {
+    if (!result.success && encoderSettings.resolution === '1080p' && result.reason !== 'rate-limit') {
+      const fallbackUrl = deriveManifestUrl(video.manifestUrl, '720p');
+      const cdnRelated = result.reason === 'stall' || result.reason === 'network' || result.reason === 'truncated';
+      if (cdnRelated) {
+        const cooldown = jitter(60_000, 120_000);
+        info(`  [${fmtTimestamp()}] [720p fallback] 1080p exhausted (${result.reason}) — cooling ${Math.round(cooldown / 1000)}s then retrying at 720p`);
+        await sleep(cooldown);
+      } else {
+        info(`  [${fmtTimestamp()}] [720p fallback] 1080p exhausted (${result.reason}) — retrying at 720p`);
+      }
+      result = await downloadVideoWithBackoff(fallbackUrl, outputPath, encoderSettings);
+      if (result.success) actualResolution = '720p';
+    }
+
+    if (result.success) {
       downloaded++;
-      await recordCompletion(indexPath, course.slug, video.lessonUrl, outputPath);
+      await recordCompletion(indexPath, course.slug, video.lessonUrl, outputPath, actualResolution);
       const elapsed = fmtElapsed(Date.now() - videoStart);
       let sizeStr = '';
       try { sizeStr = ` — ${fmtSize(Math.round(statSync(outputPath).size / 1024))}`; } catch {}
-      info(`  ✓ Done in ${elapsed}${sizeStr}`);
+      info(`  ✓ Done in ${elapsed}${sizeStr}${actualResolution ? ' [720p fallback]' : ''}`);
     } else {
       failed++;
       info(`  ✗ Failed`);

@@ -50,6 +50,7 @@ export function mergeCourses(existing, fresh) {
             completed: prev?.completed ?? false,
             downloadedAt: prev?.downloadedAt ?? null,
             localPath: prev?.localPath ?? null,
+            ...(prev?.actualResolution != null && { actualResolution: prev.actualResolution }),
           };
         }),
       })),

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { readFileSync, writeFileSync, mkdirSync, existsSync, mkdtempSync } from 'node:fs';
 
-import { isRateLimitError, isNetworkError, recordCompletion, parseLastFrame, extractBadSegmentUrl, patchManifest, isConsistentStall, parseTimeSeconds, parseDurationSec, parseFfmpegProgress, fmtSize, fmtEta, fmtElapsed, needsDownload, sweepPartFiles, derivePartPath, runCourse, computeRateMBs, isProgressLine } from '../lib/download.js';
+import { isRateLimitError, isNetworkError, recordCompletion, parseLastFrame, extractBadSegmentUrl, patchManifest, isConsistentStall, parseTimeSeconds, parseDurationSec, parseFfmpegProgress, fmtSize, fmtEta, fmtElapsed, fmtTimestamp, needsDownload, sweepPartFiles, derivePartPath, runCourse, computeRateMBs, isProgressLine } from '../lib/download.js';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -108,6 +108,22 @@ test('recordCompletion: throws if lessonUrl not found in course', async () => {
     () => recordCompletion(indexPath, 'test/course', 'https://bbcmaestro.com/lessons/999', '/dl/l.webm'),
     /Video not found/,
   );
+});
+
+test('recordCompletion: writes actualResolution when provided', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'maestro-dl-test-'));
+  const indexPath = writeTmpIndex(dir, makeIndex());
+  await recordCompletion(indexPath, 'test/course', 'https://bbcmaestro.com/lessons/1', '/dl/l.webm', '720p');
+  const video = JSON.parse(readFileSync(indexPath, 'utf8')).courses[0].categories[0].videos[0];
+  assert.equal(video.actualResolution, '720p');
+});
+
+test('recordCompletion: omits actualResolution when not provided', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'maestro-dl-test-'));
+  const indexPath = writeTmpIndex(dir, makeIndex());
+  await recordCompletion(indexPath, 'test/course', 'https://bbcmaestro.com/lessons/1', '/dl/l.webm');
+  const video = JSON.parse(readFileSync(indexPath, 'utf8')).courses[0].categories[0].videos[0];
+  assert.equal(video.actualResolution, undefined);
 });
 
 test('isRateLimitError: returns true for HTTP 429 in stderr', () => {
@@ -432,6 +448,20 @@ test('fmtEta: returns empty string when speed is 0', () => {
 
 test('fmtEta: returns empty string when current >= total (already done)', () => {
   assert.equal(fmtEta(100, 100, 1), '');
+});
+
+// ── fmtTimestamp ──────────────────────────────────────────────────────────────
+
+test('fmtTimestamp: returns HH:MM:SS from a given date', () => {
+  const d = new Date();
+  d.setHours(14, 23, 11, 0);
+  assert.equal(fmtTimestamp(d), '14:23:11');
+});
+
+test('fmtTimestamp: zero-pads single-digit components', () => {
+  const d = new Date();
+  d.setHours(9, 5, 3, 0);
+  assert.equal(fmtTimestamp(d), '09:05:03');
 });
 
 // ── fmtElapsed ────────────────────────────────────────────────────────────────

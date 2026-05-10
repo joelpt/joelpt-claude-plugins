@@ -109,6 +109,91 @@ test('mergeCourses: preserves completed/downloadedAt/localPath on already-known 
   assert.equal(video.manifestUrl, 'https://cdn.example.com/HLS/video-new.m3u8');
 });
 
+test('mergeCourses: preserves actualResolution when present on existing video', () => {
+  const existing = [
+    {
+      slug: 'alice/course-a',
+      title: 'Course A',
+      instructor: 'Alice',
+      courseUrl: 'https://bbcmaestro.com/courses/alice/course-a',
+      categories: [{
+        title: 'Intro',
+        videos: [{
+          index: 1,
+          title: 'Lesson 1',
+          lessonUrl: 'https://bbcmaestro.com/courses/alice/course-a/lessons/lesson-1',
+          manifestUrl: 'https://cdn.example.com/HLS/video.m3u8',
+          completed: true,
+          downloadedAt: '2026-05-01T10:00:00Z',
+          localPath: '/downloads/lesson-1.webm',
+          actualResolution: '720p',
+        }],
+      }],
+    },
+  ];
+  const fresh = [
+    {
+      slug: 'alice/course-a',
+      title: 'Course A',
+      instructor: 'Alice',
+      courseUrl: 'https://bbcmaestro.com/courses/alice/course-a',
+      categories: [{
+        title: 'Intro',
+        videos: [{
+          index: 1,
+          title: 'Lesson 1',
+          lessonUrl: 'https://bbcmaestro.com/courses/alice/course-a/lessons/lesson-1',
+          manifestUrl: 'https://cdn.example.com/HLS/video-new.m3u8',
+        }],
+      }],
+    },
+  ];
+  const video = mergeCourses(existing, fresh)[0].categories[0].videos[0];
+  assert.equal(video.actualResolution, '720p');
+});
+
+test('mergeCourses: omits actualResolution when absent from existing video', () => {
+  const existing = [
+    {
+      slug: 'alice/course-a',
+      title: 'Course A',
+      instructor: 'Alice',
+      courseUrl: 'https://bbcmaestro.com/courses/alice/course-a',
+      categories: [{
+        title: 'Intro',
+        videos: [{
+          index: 1,
+          title: 'Lesson 1',
+          lessonUrl: 'https://bbcmaestro.com/courses/alice/course-a/lessons/lesson-1',
+          manifestUrl: 'https://cdn.example.com/HLS/video.m3u8',
+          completed: true,
+          downloadedAt: '2026-05-01T10:00:00Z',
+          localPath: '/downloads/lesson-1.webm',
+        }],
+      }],
+    },
+  ];
+  const fresh = [
+    {
+      slug: 'alice/course-a',
+      title: 'Course A',
+      instructor: 'Alice',
+      courseUrl: 'https://bbcmaestro.com/courses/alice/course-a',
+      categories: [{
+        title: 'Intro',
+        videos: [{
+          index: 1,
+          title: 'Lesson 1',
+          lessonUrl: 'https://bbcmaestro.com/courses/alice/course-a/lessons/lesson-1',
+          manifestUrl: 'https://cdn.example.com/HLS/video-new.m3u8',
+        }],
+      }],
+    },
+  ];
+  const video = mergeCourses(existing, fresh)[0].categories[0].videos[0];
+  assert.equal(video.actualResolution, undefined);
+});
+
 test('mergeCourses: inserts newly discovered videos with completed:false', () => {
   const existing = [
     {
