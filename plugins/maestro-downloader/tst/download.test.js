@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { readFileSync, writeFileSync, mkdirSync, existsSync, mkdtempSync } from 'node:fs';
 
-import { isRateLimitError, isNetworkError, recordCompletion, parseLastFrame, parseTimeSeconds, parseDurationSec, parseFfmpegProgress, fmtSize, fmtEta, fmtElapsed, fmtTimestamp, needsDownload, sweepPartFiles, derivePartPath, runCourse, computeRateMBs, isProgressLine, downloadVideoWithBackoff, DOWNLOAD_DELAYS_MS, DOWNLOAD_FALLBACK_DELAYS_MS, CDN_STALL_PAUSE_MS } from '../lib/download.js';
+import { isRateLimitError, isNetworkError, recordCompletion, parseLastFrame, parseTimeSeconds, parseDurationSec, parseFfmpegProgress, fmtSize, fmtEta, fmtElapsed, fmtTimestamp, needsDownload, sweepPartFiles, derivePartPath, runCourse, computeRateMBs, isProgressLine, downloadVideoWithBackoff, DOWNLOAD_DELAYS_MS, DOWNLOAD_FALLBACK_DELAYS_MS, CDN_STALL_PAUSE_MS, INTER_VIDEO_DELAY_MIN_MS, INTER_VIDEO_DELAY_MAX_MS } from '../lib/download.js';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -717,4 +717,11 @@ test('downloadVideoWithBackoff: truncated exit-0 retries and returns reason "tru
   assert.equal(result.success, false);
   assert.equal(result.reason, 'truncated');
   assert.deepEqual(slept, [5]);
+});
+
+test('intervideo delays are doubled for human-like appearance', () => {
+  // Verify intervideo delays are 30s-90s (doubled from original 15s-45s)
+  // to appear more human and less bot-like during course downloads
+  assert.equal(INTER_VIDEO_DELAY_MIN_MS, 30_000);
+  assert.equal(INTER_VIDEO_DELAY_MAX_MS, 90_000);
 });

@@ -124,8 +124,8 @@ function sweepDir(dir) {
 // ── Bandwidth rate ───────────────────────────────────────────────────────────
 
 const RATE_WINDOW_MS = 5_000;
-const INTER_VIDEO_DELAY_MIN_MS = 15_000;
-const INTER_VIDEO_DELAY_MAX_MS = 45_000;
+export const INTER_VIDEO_DELAY_MIN_MS = 30_000;
+export const INTER_VIDEO_DELAY_MAX_MS = 90_000;
 
 // samples: [{ ts: number, bytes: number }], sorted oldest-first.
 // Returns rolling average MB/s (encode output rate) across the full span,
