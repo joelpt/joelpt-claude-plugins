@@ -14,7 +14,7 @@ dotenvConfig({ path: ENV_PATH, override: false });
 const debugEnabled = process.env.DEBUG === 'true' || process.argv.includes('--debug');
 
 
-const FFMPEG_TIMEOUT_MS = 20 * 60 * 1000;
+const FFMPEG_TIMEOUT_MS = 60 * 60 * 1000;
 const FRAME_STALL_MS = 600_000;
 const MIN_STALL_FRAME = 100;
 const PROGRESS_INTERVAL_MS = 1_000;
