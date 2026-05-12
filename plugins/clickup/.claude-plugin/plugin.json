@@ -1,6 +1,6 @@
 {
   "name": "clickup",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "ClickUp project management integration. Create and manage tasks, search projects, update assignments, track progress, and integrate your development workflow with ClickUp.",
   "author": {
     "name": "Joel Thor"
