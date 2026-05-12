@@ -92,7 +92,11 @@ export function deriveManifestUrl(manifestUrl, resolution) {
 
 // svtav1Params: extra -svtav1-params string, or null
 export function getEncoderSettings(profile, archive = false) {
-  const baseParams = 'lookahead=120:enable-overlays=1:enable-qm=1:qm-min=0:qm-max=15';
+  // lookahead=48: lower RAM/CPU vs 120, ~1–2% compression cost.
+  // lp=8:pin=1: cap SVT-AV1 to 8 logical processors on a 10-core M1 Max.
+  //   Under `taskpolicy -c utility` the scheduler prefers E-cores first, so this
+  //   lands as 2 E-cores + 6 P-cores, leaving 2 P-cores free for foreground.
+  const baseParams = 'lookahead=48:enable-overlays=1:enable-qm=1:qm-min=0:qm-max=15:lp=8:pin=1';
 
   const profiles = {
     // Default: speech-optimised 720p, transparent for talking-head content

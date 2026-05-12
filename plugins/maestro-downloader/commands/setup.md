@@ -23,7 +23,15 @@ Initialize the maestro-downloader plugin configuration.
    - `index.html` — master UI page (placeholder if not present)
    - `index.json` — master course index (empty object `{"lastFetched": null, "courses": []}` if not present)
 
-5. Write `~/.claude/plugins/maestro-downloader/.env` with:
+5. Reduce background load from system indexers on the courses dir (macOS only — safe to skip on other platforms):
+   - `touch "<root>/courses/.metadata_never_index"` — Apple's documented per-directory Spotlight opt-out
+     (no sudo required, unlike `mdutil -i off` which needs a volume mountpoint or root).
+   - `tmutil addexclusion "<root>/courses"` — exclude from Time Machine backups so TM doesn't scan mid-encode.
+
+   Both are reversible (`rm .metadata_never_index` / `tmutil removeexclusion`). Report results;
+   if either errors (e.g. on a non-macOS host), continue without failing setup.
+
+6. Write `~/.claude/plugins/maestro-downloader/.env` with:
 
    ```text
    MAESTRO_EMAIL=<email>
@@ -31,8 +39,8 @@ Initialize the maestro-downloader plugin configuration.
    MAESTRO_ROOT=<absolute-root-path>
    ```
 
-6. Run `node lib/setup.js --validate` from the plugin directory to do a test login.
-   The script reads credentials from the `.env` file written in step 5.
+7. Run `node lib/setup.js --validate` from the plugin directory to do a test login.
+   The script reads credentials from the `.env` file written in step 6.
    Report success or failure clearly.
 
 ## Notes

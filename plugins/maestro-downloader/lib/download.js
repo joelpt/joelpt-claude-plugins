@@ -17,7 +17,7 @@ const debugEnabled = process.env.DEBUG === 'true' || process.argv.includes('--de
 const FFMPEG_TIMEOUT_MS = 60 * 60 * 1000;
 const FRAME_STALL_MS = 600_000;
 const MIN_STALL_FRAME = 100;
-const PROGRESS_INTERVAL_MS = 1_000;
+const PROGRESS_INTERVAL_MS = 2_500;
 
 export const DOWNLOAD_DELAYS_MS = [30, 60, 60, 90, 90].map(e => e * 1000 * 60);
 export const DOWNLOAD_FALLBACK_DELAYS_MS = DOWNLOAD_DELAYS_MS.map(d => Math.round(d / 4));
@@ -223,8 +223,8 @@ async function runFfmpeg(inputUrl, outputPath, settings) {
     const rateSamples = [];
 
     const args = buildFfmpegArgs(inputUrl, outputPath, settings);
-    debug(`nice -n 20 ffmpeg ${args.join(' ')}`);
-    const proc = spawn('nice', ['-n', '20', 'ffmpeg', ...args], { stdio: ['ignore', 'inherit', 'pipe'] });
+    debug(`taskpolicy -c utility nice -n 20 ffmpeg ${args.join(' ')}`);
+    const proc = spawn('taskpolicy', ['-c', 'utility', 'nice', '-n', '20', 'ffmpeg', ...args], { stdio: ['ignore', 'inherit', 'pipe'] });
 
     drawProgress(null, null, null, null, null, null, null);
     const progressInterval = setInterval(() => {
@@ -518,7 +518,17 @@ export async function runCourse(courseSlug, root, indexPath, { profile = null, a
   return { downloaded, failed };
 }
 
+// Block idle sleep while we run. -w <pid> ties caffeinate's lifetime to ours,
+// so it auto-releases the assertion on any exit (clean, crash, SIGKILL).
+function preventIdleSleep() {
+  const c = spawn('caffeinate', ['-i', '-w', String(process.pid)], { detached: true, stdio: 'ignore' });
+  // ENOENT (non-macOS / CI / caffeinate missing) fires async — must listen or node crashes.
+  c.on('error', () => { /* caffeinate not available; proceed without sleep block */ });
+  c.unref();
+}
+
 async function main() {
+  preventIdleSleep();
   const root = process.env.MAESTRO_ROOT?.trim();
   const qualityEnv = process.env.MAESTRO_QUALITY?.trim();
   if (!root) { error('MAESTRO_ROOT not set. Run /setup first.'); process.exit(1); }
