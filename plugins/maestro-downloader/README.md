@@ -1,5 +1,20 @@
 This is a Claude Code plugin which provides a video downloader functionality for BBC Maestro.
 
+## v2 in flight
+
+A v2 rewrite is in progress on branch `worktree-maestro-v2-yolo` that converts the on-disk layout to a Plex-/Jellyfin-compatible TV Shows library while preserving the bespoke SPA as a no-Plex fallback. New code already shipped on that branch:
+
+- JSON Schema validator for `index.json` (Ajv 2020-12).
+- Pure layout functions in `lib/layout.js` (path & season derivation; idempotent legacy-path candidates for migration).
+- NFO writers in `lib/nfo.js` (Plex `<namedseason>` + per-episode `<uniqueid>`; Jellyfin-safe season.nfo per issue #11656).
+- Artwork downloader in `lib/artwork.js` (poster/fanart, idempotent).
+- `mergeCourses` rewrite that recurses into `subcategories[].videos` (fixes the documented data-loss bug on multi-category courses) and preserves a new `subscribed` user-state field.
+- Migration tooling in `lib/migrate.js` with `--plan / --copy / --verify / --cleanup` subcommands, per-course receipts under `.migration/`, atomic `.copying` staging, 5% SHA-256 sampling, and a lockfile.
+- `download.js` writes to v2 paths and emits per-episode `.nfo` sidecars on completion.
+- `serve.js` rewrites absolute `localPath` fields in the served `index.json` to URL-relative paths so the SPA works against both v1 and v2 layouts transparently.
+
+Pending work and BLOCKING human-input items are tracked in `USER_TODO.md`. See `docs/PLEX_SETUP.md` for the Plex library configuration once migration is complete.
+
 ## Supported commands
 
 ### `/setup`
@@ -102,7 +117,6 @@ Encoding performance (Apple Silicon, M-series):
 
 ## UI features
 
-1. `<root>/index.html` — master course index; reads `index.json` to render course tiles.
-2. `?course=<slug>` — course detail page showing categories and video list.
-3. `?video=<ConciseCourseTitle/ConciseCategoryTitle/IndexNumber-ConciseVideoTitle.webm>` — video player using HTML5 `<video>` element.
-   WebM (AV1+Opus) plays natively in Chrome 70+, Firefox 67+, Edge, and Safari 17+.
+1. `<root>/index.html` — master course index; reads `/index.json` (served from `<root>/index.json` with absolute `localPath` fields rewritten to URL-relative paths so it works against both v1 and v2 layouts).
+2. `?course=<slug>` — course detail page showing categories (and subcategories, rendered as `Parent → Child`) with video list.
+3. `?video=<url-path>` — video player using HTML5 `<video>` element. WebM (AV1+Opus) plays natively in Chrome 70+, Firefox 67+, Edge, and Safari 17+.
