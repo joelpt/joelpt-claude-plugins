@@ -98,6 +98,15 @@ Plex's TV Series Scanner is upstream and non-bypassable — `sXXeYY` filenames a
 
 Entire series of changes completed, vetted, tested. `just run` opens the Ink TUI. Plex library at `~/xfer/maestro` shows 48 courses as TV shows with custom-named seasons. 556 already-downloaded videos preserved across migration. JSON Schema validates `index.json` on every read/write. Web SPA still works as a no-Plex fallback.
 
+### Progress log
+
+Autonomous /yolo run on branch `worktree-maestro-v2-yolo`. Human-input gates tracked in `USER_TODO.md`.
+
+- [x] Phase −1.4: fresh `index.json.pre-v2-migration.<ISO8601>` backup verified byte-identical to live `index.json` (2026-05-13).
+- [ ] Phase −1.1: PMS ≥ 1.43.1.10512 — BLOCKING in USER_TODO.md (needs your Plex UI).
+- [ ] Phase −1.2: lessonUrl stability spot-check — pending (autonomous; needs Playwright).
+- [ ] Phase 0: Plex `<namedseason>` POC — partially BLOCKING in USER_TODO.md (autonomous run will generate the artifacts; manual Plex config + screenshot is on you).
+
 ---
 
 ## Phase 1: Plugin Infrastructure & POCs (Foundation) ✅ COMPLETE
