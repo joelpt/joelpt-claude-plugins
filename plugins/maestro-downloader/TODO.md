@@ -103,6 +103,7 @@ Entire series of changes completed, vetted, tested. `just run` opens the Ink TUI
 ## Phase 1: Plugin Infrastructure & POCs (Foundation) ✅ COMPLETE
 
 ### Setup
+
 - [x] Create `.claude-plugin/plugin.json` with metadata
 - [x] Create `commands/setup.md`, `commands/list.md`, `commands/download.md` stubs
 - [x] Create `hooks/hooks.json` if needed (likely for session init) — skipped: no hooks needed at this phase
@@ -110,7 +111,9 @@ Entire series of changes completed, vetted, tested. `just run` opens the Ink TUI
 - [x] Install dependencies (Playwright/Puppeteer, ffmpeg-fluent, express for local server, etc.)
 
 ### POC: BBC Maestro Browser Automation
+
 **Blocker risk: HIGH** — ✅ RESOLVED — No DRM, CDN fully open.
+
 - [x] POC: Log in to BBC Maestro with credentials (Playwright headless) — works; reCAPTCHA present but session set before it; stealth mode recommended
 - [x] POC: Extract course list from main page (DOM scraping or network inspection) — `vc-poster` cards, pattern: `/courses/{instructor}/{slug}`
 - [x] POC: Navigate to a single course and extract video categories + video metadata — lesson links at `/courses/.../lessons/{slug}`
@@ -118,19 +121,25 @@ Entire series of changes completed, vetted, tested. `just run` opens the Ink TUI
 - [x] Document findings: How many .ts fragments per video? Auth/session reqs? Any anti-bot measures? — see `poc/01-findings.md`
 
 ### POC: Video Processing Pipeline
+
 **Blocker risk: MEDIUM** — ✅ RESOLVED — Direct HLS → AV1 WebM confirmed; see `poc/02-findings.md`.
+
 - [x] POC: Merge a sample .ts file sequence with `ffmpeg -concat` demuxer — superseded; direct HLS is simpler
 - [x] POC: Transcode merged file to AV1 with high-fidelity settings; measure quality vs. file size tradeoff — CRF 28 / 1080p default confirmed
 - [x] Document findings: ffmpeg CLI params, transcoding time, file size deltas — see `poc/02-findings.md`
 
 ### POC: Browser Playback
+
 **Blocker risk: LOW** — ✅ RESOLVED — `.webm` (AV1+Opus) plays natively; no player lib needed.
+
 - [x] POC: Test HTML5 `<video>` playback of local `.webm` file in major browsers — Chrome 70+, Firefox 67+, Edge, Safari 17+ all support AV1 in WebM natively
 - [x] POC: If native support lacking, evaluate lightweight player lib — not needed
 - [x] Document findings: Browser compatibility, player choice if needed — `.webm`+AV1 is the answer; spec updated
 
 ### POC: Rate Limiting Strategy
+
 **Blocker risk: MEDIUM** — ✅ RESOLVED — CDN has no rate governing; conservative scraping delay sufficient. See `poc/03-findings.md`.
+
 - [x] POC: Analyse CDN infrastructure for rate limiting mechanisms — CloudFront + S3, no WAF, no signed URLs, no watch-rate detection
 - [x] POC: Determine safe inter-page delay for `/fetch-list` scraping — 1.5–3.5 s per lesson page, 3–6 s between courses
 - [x] Document findings: CDN architecture, risk surface, recommended params — see `poc/03-findings.md`
@@ -140,6 +149,7 @@ Entire series of changes completed, vetted, tested. `just run` opens the Ink TUI
 ## Phase 2: Core Commands
 
 ### `/setup` Command
+
 - [x] Implement `lib/setup.js`: prompt for BBC Maestro email + password + root folder
 - [x] Write `.env` to `~/.claude/plugins/maestro-downloader/` (MAESTRO_EMAIL, MAESTRO_PASSWORD, MAESTRO_ROOT)
 - [x] Create folder structure: `<root>/courses/`, `<root>/index.html`, `<root>/index.json` (empty)
@@ -184,6 +194,7 @@ Entire series of changes completed, vetted, tested. `just run` opens the Ink TUI
 - [x] Update `commands/download.md` to reflect final implementation
 
 ### Register `/fetch-list` in plugin.json
+
 - [x] Add `fetch-list` to the commands list in `.claude-plugin/plugin.json` — N/A: commands auto-discovered from `commands/*.md`; no commands array needed in plugin.json
 
 ---
@@ -191,6 +202,7 @@ Entire series of changes completed, vetted, tested. `just run` opens the Ink TUI
 ## Phase 3: UI & Integration
 
 ### HTML UI (`ui/index.html`)
+
 - [x] Master course index: read `index.json`, render course tiles with completion %
 - [x] Query param routing:
   - [x] `?course=<slug>` → course detail (categories + video list with download status)
@@ -199,9 +211,11 @@ Entire series of changes completed, vetted, tested. `just run` opens the Ink TUI
 - [x] Styling: clean, responsive layout (tablet-friendly)
 
 ### Local Server
+
 - [x] Simple Express server (`lib/serve.js`) serving `<root>/` with correct MIME type for `.webm`; `/serve` command added
 
 ### Integration Testing
+
 - [ ] End-to-end: `/setup` → `/fetch-list` → `/list` → `/download` single video → open in browser (requires live BBC Maestro account; manual smoke only)
 - [ ] Test resume: interrupt `/download`, rerun, verify only incomplete videos are downloaded (live account)
 - [ ] Test `/fetch-list` additive merge: manually add a fake video to `index.json`, rerun, verify it's preserved (live account)
