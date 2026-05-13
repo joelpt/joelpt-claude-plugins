@@ -17,9 +17,13 @@ build:
 serve:
     node lib/serve.js
 
-# ── v1 download queue (until Phase 5 TUI lands, this is the runner) ──────────
+# ── Ink TUI (v2: subscribe, content-type, rescan, download) ──────────────────
 
 run:
+    node lib/tui/main.js
+
+# Legacy non-TUI download queue.
+queue:
     node lib/queue.js
 
 # ── v2 migration workflow (run in order, then verify in Plex) ────────────────

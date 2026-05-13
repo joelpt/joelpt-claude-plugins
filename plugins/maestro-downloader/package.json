@@ -15,10 +15,15 @@
     "ajv-formats": "^3.0.1",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
+    "ink": "^5.2.1",
+    "ink-select-input": "^6.2.0",
+    "ink-spinner": "^5.0.0",
+    "ink-text-input": "^6.0.0",
     "playwright": "^1.50.1",
     "xmlbuilder2": "^4.0.3"
   },
   "devDependencies": {
-    "@playwright/test": "^1.50.1"
+    "@playwright/test": "^1.50.1",
+    "ink-testing-library": "^4.0.0"
   }
 }
