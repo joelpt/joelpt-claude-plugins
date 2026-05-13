@@ -55,6 +55,31 @@ Format key: `[BLOCKING]` = no meaningful forward progress on related work; `[NON
 
       Why human: live network operation against your account with rate-limit risk + irreversible-merge risk on the 39 GB of existing data.
 
+- [ ] [BLOCKING] **Phase 1.4: capture DOM fixtures from live BBC Maestro yourself**
+
+      Context: Phase 1.4 needs HTML fixtures captured via `page.content()` after the BBC Maestro page renders, so Phase 1.5 can write the new scraper against real markup. Originally this was tagged "read-only autonomous" — that's wrong. It would crawl your live BBC Maestro account via Playwright (with login + reCAPTCHA + session cookies + rate-limit risk). Better that you trigger it yourself when ready.
+
+      The autonomous run will write the helper script `lib/capture-fixtures.js` for you (commits separately). Then:
+
+      1. Run `node lib/capture-fixtures.js` once — it logs in with your `.env` credentials, visits the 5 known-multi-category courses (eric-vetro, alan-moore, mark-ronson, oliver-burkeman, owen-o-kane) and 1 known-good control course, and saves `tst/fixtures/<slug>.post-render.html` for each.
+      2. `git add tst/fixtures/ && /commit-commands:commit` the captured fixtures.
+      3. Resume the autonomous run; Phase 1.5 (scrapeCoursePage rewrite) will use the fixtures as its test inputs.
+
+      Why human: live login + crawl against your account, not something the autonomous run should initiate without your knowledge.
+
+- [ ] [BLOCKING] **Phase 1.3 execution: run the schema v2 migration against live `~/xfer/maestro/index.json`**
+
+      Context: Phase 1.3 is a one-shot migration that renames every `index` → `bbcMaestroIndex`, adds `subscribed`/`contentType` fields, and writes `schemaVersion: 2`. The autonomous run will write the migration code (with a built-in backup + post-migration `count(completed)==556` assertion + auto-restore on failure) but won't EXECUTE it on your live file.
+
+      What you'll need to do:
+
+      1. Review the autonomous run's `lib/migrate-schema-v2.js` (will land as part of Phase 1.3 commit).
+      2. Run `node lib/migrate-schema-v2.js --dry-run` first; review the diff it prints.
+      3. Run `node lib/migrate-schema-v2.js` for real. Backup is automatic; assertion auto-restores if it fails.
+      4. Verify by running `node -e "console.log(JSON.parse(require('fs').readFileSync(process.env.MAESTRO_ROOT + '/index.json')).schemaVersion)"` → should print `2`.
+
+      Why human: the migration is one-shot against the live file; a half-applied state would be hard to recover even with backups (e.g., if context window exhausted mid-write). The autonomous run holds the code and the safety nets; you press the button.
+
 - [ ] [BLOCKING] **Phase 3 `migrate.js --copy` and `--cleanup`: approve before running**
 
       Context: This phase reorganizes the 556 already-downloaded videos into the new Plex-compatible layout. Autonomous run will write the full migrate.js (plan/copy/verify/cleanup with lockfile, receipts, .copying staging+atomic-rename, 5% SHA-256 sampling) and run `node lib/migrate.js --plan` (read-only dry-run) so you can review every action.
