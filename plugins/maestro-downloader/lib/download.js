@@ -9,10 +9,10 @@ import { deriveManifestUrl, deriveOutputPath, atomicWriteJson, getEncoderSetting
 import { info as _info, warn as _warn, debug, error } from './logger.js';
 
 const ENV_PATH = join(homedir(), '.claude', 'plugins', 'maestro-downloader', '.env');
-dotenvConfig({ path: ENV_PATH, override: false });
 
-const debugEnabled = process.env.DEBUG === 'true' || process.argv.includes('--debug');
-
+function isDebugEnabled() {
+  return process.env.DEBUG === 'true' || process.argv.includes('--debug');
+}
 
 const FFMPEG_TIMEOUT_MS = 60 * 60 * 1000;
 const FRAME_STALL_MS = 600_000;
@@ -279,7 +279,7 @@ async function runFfmpeg(inputUrl, outputPath, settings) {
         if (progress.speed != null) lastSpeed = progress.speed;
       }
 
-      if (debugEnabled && !isProgressLine(chunk)) process.stderr.write(chunk);
+      if (isDebugEnabled() && !isProgressLine(chunk)) process.stderr.write(chunk);
     });
 
     proc.on('close', (code) => {
@@ -528,6 +528,7 @@ function preventIdleSleep() {
 }
 
 async function main() {
+  dotenvConfig({ path: ENV_PATH, override: false });
   preventIdleSleep();
   const root = process.env.MAESTRO_ROOT?.trim();
   const qualityEnv = process.env.MAESTRO_QUALITY?.trim();

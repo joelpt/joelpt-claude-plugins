@@ -103,7 +103,8 @@ Entire series of changes completed, vetted, tested. `just run` opens the Ink TUI
 Autonomous /yolo run on branch `worktree-maestro-v2-yolo`. Human-input gates tracked in `USER_TODO.md`.
 
 - [x] Phase −1.4: fresh `index.json.pre-v2-migration.<ISO8601>` backup verified byte-identical to live `index.json` (2026-05-13).
-- [x] Phase 1.1: `schema/index.schema.json` + `lib/schema.js` (Ajv 2020-12). 23 unit tests cover valid/invalid round-trips, contentType enum, slug pattern, video field requireds, oneOf mutex for `videos` XOR `subcategories`, subcategory recursion. All 196 project tests pass.
+- [x] Phase 1.1: `schema/index.schema.json` + `lib/schema.js` (Ajv 2020-12). 23 unit tests cover valid/invalid round-trips, contentType enum, slug pattern, video field requireds, oneOf mutex for `videos` XOR `subcategories`, subcategory recursion, `completed:true ⇒ localPath/downloadedAt non-null` invariant.
+- [x] Phase 2.5: removed import-time side effects from 8 lib/*.js files — `dotenvConfig()` moved into each `main()`; `debugEnabled` in download.js became lazy `isDebugEnabled()`; `lib/fix-index.js` and `lib/tag-courses.js` gained the missing `if (process.argv[1] === fileURLToPath(import.meta.url))` CLI guard so their `main()` no longer runs unconditionally on import. Reviewer caught `lib/reconcile.js` (transitively imported by queue.js) was missed in the first pass — fixed. New `tst/no-import-side-effects.test.js` uses a tripwire `.env` (in a tempdir HOME with MAESTRO_TRIPWIRE=1) to definitively prove dotenv is NOT called at import time across all 8 lib modules. 215 tests pass.
 - [ ] Phase −1.1: PMS ≥ 1.43.1.10512 — BLOCKING in USER_TODO.md (needs your Plex UI).
 - [ ] Phase −1.2: lessonUrl stability spot-check — pending (autonomous; needs Playwright).
 - [ ] Phase 0: Plex `<namedseason>` POC — partially BLOCKING in USER_TODO.md (autonomous run will generate the artifacts; manual Plex config + screenshot is on you).

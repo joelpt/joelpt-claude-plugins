@@ -15,9 +15,6 @@ import { info, error } from './logger.js';
 const BASE_URL = 'https://www.bbcmaestro.com';
 const ENV_PATH = join(homedir(), '.claude', 'plugins', 'maestro-downloader', '.env');
 
-// Load .env if present; process.env values already set (e.g. in tests) take precedence
-dotenvConfig({ path: ENV_PATH, override: false });
-
 function fail(msg) {
   error(msg);
   process.exit(1);
@@ -97,6 +94,8 @@ async function validateCredentials(email, password) {
 }
 
 async function main() {
+  // Load .env if present; process.env values already set (e.g. in tests) take precedence
+  dotenvConfig({ path: ENV_PATH, override: false });
   if (!process.argv.includes('--validate')) {
     error('Usage: node lib/setup.js --validate');
     process.exit(1);

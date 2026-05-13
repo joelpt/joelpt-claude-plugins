@@ -8,7 +8,6 @@ import { atomicWriteJson, deriveOutputPath, isFileComplete } from './index-utils
 import { info, warn } from './logger.js';
 
 const ENV_PATH = join(homedir(), '.claude', 'plugins', 'maestro-downloader', '.env');
-dotenvConfig({ path: ENV_PATH, override: false });
 
 // Returns counts AND per-item details for problem children:
 //   backfilledItems:    [{ courseSlug, categoryTitle, videoIndex, videoTitle, path }]
@@ -89,6 +88,7 @@ export function sweepOrphanedTruncatedWebms(indexData, root) {
 }
 
 async function main() {
+  dotenvConfig({ path: ENV_PATH, override: false });
   const root = process.env.MAESTRO_ROOT?.trim();
   if (!root) { console.error('MAESTRO_ROOT not set. Run /setup first.'); process.exit(1); }
 

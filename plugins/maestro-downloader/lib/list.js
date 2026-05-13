@@ -8,7 +8,6 @@ import { isStaleCache } from './index-utils.js';
 import { info, warn, error } from './logger.js';
 
 const ENV_PATH = join(homedir(), '.claude', 'plugins', 'maestro-downloader', '.env');
-dotenvConfig({ path: ENV_PATH, override: false });
 
 export function formatCourseList(courses) {
   if (courses.length === 0) return '';
@@ -67,6 +66,7 @@ export function formatCourseList(courses) {
 }
 
 async function main() {
+  dotenvConfig({ path: ENV_PATH, override: false });
   const root = process.env.MAESTRO_ROOT?.trim();
   if (!root) {
     error('MAESTRO_ROOT not set. Run /setup first.');

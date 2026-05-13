@@ -10,7 +10,6 @@ import { runCourse, sweepPartFiles } from './download.js';
 import { info, warn, error } from './logger.js';
 
 const ENV_PATH = join(homedir(), '.claude', 'plugins', 'maestro-downloader', '.env');
-dotenvConfig({ path: ENV_PATH, override: false });
 
 export const SLUGS = [
   'sir-billy-connolly/comedy',
@@ -94,6 +93,7 @@ export async function runReconcile(indexPath, root) {
 }
 
 async function main() {
+  dotenvConfig({ path: ENV_PATH, override: false });
   const root = process.env.MAESTRO_ROOT?.trim();
   if (!root) { error('MAESTRO_ROOT not set. Run /setup first.'); process.exit(1); }
 

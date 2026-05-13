@@ -12,11 +12,11 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
+import { fileURLToPath } from 'node:url';
 import { config as dotenvConfig } from 'dotenv';
 import { atomicWriteJson } from './index-utils.js';
 
 const ENV_PATH = join(homedir(), '.claude', 'plugins', 'maestro-downloader', '.env');
-dotenvConfig({ path: ENV_PATH, override: false });
 
 const TAGS = {
   // music — audio fidelity critical
@@ -77,6 +77,7 @@ const TAGS = {
 };
 
 async function main() {
+  dotenvConfig({ path: ENV_PATH, override: false });
   const root = process.env.MAESTRO_ROOT?.trim();
   if (!root) { console.error('MAESTRO_ROOT not set'); process.exit(1); }
 
@@ -107,4 +108,6 @@ async function main() {
   }
 }
 
-main().catch(e => { console.error(e.message); process.exit(1); });
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  main().catch(e => { console.error(e.message); process.exit(1); });
+}

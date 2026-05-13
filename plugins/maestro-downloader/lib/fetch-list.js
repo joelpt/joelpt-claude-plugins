@@ -11,9 +11,6 @@ import { info, warn, debug, error } from './logger.js';
 const BASE_URL = 'https://www.bbcmaestro.com';
 const ENV_PATH = join(homedir(), '.claude', 'plugins', 'maestro-downloader', '.env');
 
-dotenvConfig({ path: ENV_PATH, override: false });
-
-
 let globalAdaptiveDelayMs = 2000;
 
 async function withBackoff(label, fn) {
@@ -376,6 +373,7 @@ async function crawl(email, password, root, resumeMode) {
 }
 
 async function main() {
+  dotenvConfig({ path: ENV_PATH, override: false });
   const email = process.env.MAESTRO_EMAIL?.trim();
   const password = process.env.MAESTRO_PASSWORD?.trim();
   const root = process.env.MAESTRO_ROOT?.trim();
