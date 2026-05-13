@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://maestro-downloader/index.schema.json",
+  "title": "MaestroIndex",
+  "description": "Schema v2 for ~/xfer/maestro/index.json — adds subscribed, contentType enum, posterUrl/fanartUrl/instructorHeadshotUrl, description, bbcMaestroIndex (renamed from index), and subcategories[] (mutually exclusive with videos at each category node).",
+  "type": "object",
+  "required": ["lastFetched", "schemaVersion", "courses"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": { "type": "integer", "const": 2 },
+    "lastFetched": { "type": "string", "format": "date-time" },
+    "courses": { "type": "array", "items": { "$ref": "#/$defs/Course" } }
+  },
+  "$defs": {
+    "Course": {
+      "type": "object",
+      "required": [
+        "slug",
+        "title",
+        "instructor",
+        "courseUrl",
+        "categories",
+        "subscribed",
+        "contentType"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "slug": { "type": "string", "pattern": "^[a-z0-9-]+/[a-z0-9-]+$" },
+        "title": { "type": "string", "minLength": 1 },
+        "instructor": { "type": "string", "minLength": 1 },
+        "category": { "type": "string", "minLength": 1 },
+        "courseUrl": { "type": "string", "format": "uri" },
+        "description": { "type": "string" },
+        "posterUrl": { "type": "string", "format": "uri" },
+        "fanartUrl": { "type": "string", "format": "uri" },
+        "instructorHeadshotUrl": { "type": "string", "format": "uri" },
+        "subscribed": { "type": "boolean" },
+        "contentType": {
+          "type": "string",
+          "enum": ["default", "speech", "music", "visual", "lean"]
+        },
+        "categories": { "type": "array", "items": { "$ref": "#/$defs/Category" } }
+      }
+    },
+    "Category": {
+      "type": "object",
+      "required": ["title"],
+      "additionalProperties": false,
+      "properties": {
+        "title": { "type": "string", "minLength": 1 },
+        "videos": { "type": "array", "items": { "$ref": "#/$defs/Video" } },
+        "subcategories": { "type": "array", "items": { "$ref": "#/$defs/Category" } }
+      },
+      "oneOf": [
+        { "required": ["videos"] },
+        { "required": ["subcategories"] }
+      ]
+    },
+    "Video": {
+      "type": "object",
+      "required": [
+        "bbcMaestroIndex",
+        "title",
+        "lessonUrl",
+        "manifestUrl",
+        "completed",
+        "downloadedAt",
+        "localPath"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "bbcMaestroIndex": { "type": "integer", "minimum": 1 },
+        "title": { "type": "string", "minLength": 1 },
+        "lessonUrl": { "type": "string", "format": "uri" },
+        "manifestUrl": { "type": "string", "format": "uri" },
+        "completed": { "type": "boolean" },
+        "downloadedAt": {
+          "anyOf": [
+            { "type": "string", "format": "date-time" },
+            { "type": "null" }
+          ]
+        },
+        "localPath": {
+          "anyOf": [
+            { "type": "string", "minLength": 1 },
+            { "type": "null" }
+          ]
+        },
+        "actualResolution": { "type": "string", "minLength": 1 }
+      },
+      "if": { "properties": { "completed": { "const": true } }, "required": ["completed"] },
+      "then": {
+        "properties": {
+          "downloadedAt": { "type": "string", "format": "date-time" },
+          "localPath": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
+}

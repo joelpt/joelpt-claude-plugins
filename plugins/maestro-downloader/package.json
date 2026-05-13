@@ -11,6 +11,8 @@
     "test:integration": "node --test tst/integration/*.test.js"
   },
   "dependencies": {
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "playwright": "^1.50.1"

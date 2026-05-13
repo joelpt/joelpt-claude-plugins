@@ -103,6 +103,7 @@ Entire series of changes completed, vetted, tested. `just run` opens the Ink TUI
 Autonomous /yolo run on branch `worktree-maestro-v2-yolo`. Human-input gates tracked in `USER_TODO.md`.
 
 - [x] Phase −1.4: fresh `index.json.pre-v2-migration.<ISO8601>` backup verified byte-identical to live `index.json` (2026-05-13).
+- [x] Phase 1.1: `schema/index.schema.json` + `lib/schema.js` (Ajv 2020-12). 23 unit tests cover valid/invalid round-trips, contentType enum, slug pattern, video field requireds, oneOf mutex for `videos` XOR `subcategories`, subcategory recursion. All 196 project tests pass.
 - [ ] Phase −1.1: PMS ≥ 1.43.1.10512 — BLOCKING in USER_TODO.md (needs your Plex UI).
 - [ ] Phase −1.2: lessonUrl stability spot-check — pending (autonomous; needs Playwright).
 - [ ] Phase 0: Plex `<namedseason>` POC — partially BLOCKING in USER_TODO.md (autonomous run will generate the artifacts; manual Plex config + screenshot is on you).
