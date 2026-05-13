@@ -1,10 +1,11 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
-import { planCourse, planAll, resolveSourcePath, runPlan } from '../lib/migrate.js';
-import { legacyDeriveOutputPath, legacySanitizeFilename } from '../lib/layout.js';
+import { planCourse, planAll, resolveSourcePath, runPlan, copyCourse, runCopy } from '../lib/migrate.js';
+import { legacyDeriveOutputPath, legacySanitizeFilename, legacySanitizeFilenamePreAmpStrip } from '../lib/layout.js';
+import { readFileSync, existsSync, writeFileSync as fsWriteFile, mkdirSync as fsMkdir } from 'node:fs';
 
 let root;
 
@@ -229,4 +230,178 @@ test('runPlan: reads index.json, prints plan, returns result', () => {
   assert.equal(result.summary.totalActions, 1);
   assert.ok(lines.some(l => l.includes('1 COPY actions')));
   assert.ok(lines.some(l => l.includes('s01e01 - V.webm')));
+});
+
+// ── copyCourse: per-course --copy execution ──────────────────────────────────
+
+function writeStubWebmWithCues(path, sizeBytes = 2_000_000) {
+  // Build a fake .webm whose tail contains a valid Cues element so
+  // hasCompletionCues() passes during the copyWithVerification step.
+  // The Matroska Cues ID is 0x1c53bb6b followed by an EBML VINT length and
+  // a content byte that's a valid EBML class ID start (>= 0x10).
+  fsMkdir(dirname(path), { recursive: true });
+  const buf = Buffer.alloc(sizeBytes, 0);
+  // Place the Cues marker near the tail (last 50 KB) so the lookup window finds it.
+  const cuesOffset = sizeBytes - 30_000;
+  buf[cuesOffset] = 0x1c; buf[cuesOffset + 1] = 0x53; buf[cuesOffset + 2] = 0xbb; buf[cuesOffset + 3] = 0x6b;
+  buf[cuesOffset + 4] = 0x81; // VINT first byte: single-byte length
+  buf[cuesOffset + 5] = 0xab; // content byte >= 0x10 satisfies the "valid EBML ID start" check
+  fsWriteFile(path, buf);
+  return path;
+}
+
+test('copyCourse: pre-flight fails fast on MISSING_SOURCE before any copy', () => {
+  const subRoot = join(root, 'copyCourse-preflight');
+  mkdirSync(subRoot, { recursive: true });
+  const index = { courses: [{
+    slug: 'a/b', title: 'T', instructor: 'I', courseUrl: 'https://x',
+    subscribed: false, contentType: 'default',
+    categories: [{ title: 'Lessons', videos: [makeVideo({ bbcMaestroIndex: 1, title: 'Missing', localPath: null })] }],
+  }] };
+  assert.throws(() => copyCourse(subRoot, index, 'a/b'), /pre-flight failed/i);
+});
+
+test('copyCourse: happy path copies file + writes NFO + writes receipt', () => {
+  const subRoot = join(root, 'copyCourse-happy');
+  mkdirSync(subRoot, { recursive: true });
+  // Create a real .webm-with-cues at the legacy path the resolver expects.
+  const sourcePath = legacyDeriveOutputPath(subRoot, 'a/b', 'Lessons', 1, 'Real Lesson');
+  writeStubWebmWithCues(sourcePath);
+  const index = { courses: [{
+    slug: 'a/b', title: 'T', instructor: 'I', courseUrl: 'https://x',
+    subscribed: false, contentType: 'default',
+    categories: [{ title: 'Lessons', videos: [makeVideo({
+      bbcMaestroIndex: 1, title: 'Real Lesson', localPath: sourcePath,
+    })] }],
+  }] };
+  const result = copyCourse(subRoot, index, 'a/b');
+  assert.equal(result.copied, 1);
+
+  // Verify the file landed at the v2 path.
+  const expectedV2Path = join(subRoot, 'T - I', 'Season 01', 'T - I - s01e01 - Real Lesson.webm');
+  assert.ok(existsSync(expectedV2Path), `expected v2 file at ${expectedV2Path}`);
+
+  // Verify the per-episode NFO landed beside it.
+  const nfoPath = expectedV2Path.replace(/\.webm$/, '.nfo');
+  assert.ok(existsSync(nfoPath), 'per-episode .nfo should be written next to .webm');
+  const nfo = readFileSync(nfoPath, 'utf8');
+  assert.match(nfo, /<title>Real Lesson<\/title>/);
+  assert.match(nfo, /<uniqueid type="bbcmaestro">a\/b\/s01e01<\/uniqueid>/);
+
+  // Verify tvshow.nfo + season.nfo were written.
+  assert.ok(existsSync(join(subRoot, 'T - I', 'tvshow.nfo')));
+  assert.ok(existsSync(join(subRoot, 'T - I', 'Season 01', 'season.nfo')));
+
+  // Verify the receipt was written.
+  const receiptPath = join(subRoot, '.migration', 'a_b.json');
+  assert.ok(existsSync(receiptPath));
+  const receipt = JSON.parse(readFileSync(receiptPath, 'utf8'));
+  assert.equal(receipt.slug, 'a/b');
+  assert.equal(receipt.actions.length, 1);
+  assert.equal(receipt.actions[0].to, expectedV2Path);
+
+  // Verify the in-memory index was mutated with the new localPath.
+  assert.equal(index.courses[0].categories[0].videos[0].localPath, expectedV2Path);
+
+  // Verify source file is untouched (copy, not move).
+  assert.ok(existsSync(sourcePath));
+});
+
+test('copyCourse: idempotent re-run on a course with an existing receipt skips by default', () => {
+  const subRoot = join(root, 'copyCourse-idem');
+  mkdirSync(subRoot, { recursive: true });
+  const sourcePath = legacyDeriveOutputPath(subRoot, 'a/b', 'Lessons', 1, 'V');
+  writeStubWebmWithCues(sourcePath);
+  const index = { courses: [{
+    slug: 'a/b', title: 'T', instructor: 'I', courseUrl: 'https://x',
+    subscribed: false, contentType: 'default',
+    categories: [{ title: 'Lessons', videos: [makeVideo({
+      bbcMaestroIndex: 1, title: 'V', localPath: sourcePath,
+    })] }],
+  }] };
+  copyCourse(subRoot, index, 'a/b');
+  const second = copyCourse(subRoot, index, 'a/b');
+  assert.equal(second.copied, 0, 'second run should skip');
+  assert.ok(second.skipped > 0);
+});
+
+test('copyCourse: resolves legacy candidate when localPath is null — plain title', () => {
+  const subRoot = join(root, 'copyCourse-plain');
+  mkdirSync(subRoot, { recursive: true });
+  // Both candidates point at the same place when the title has no `&`.
+  const sourcePath = legacyDeriveOutputPath(subRoot, 'a/b', 'Lessons', 1, 'PlainTitle');
+  writeStubWebmWithCues(sourcePath);
+  const index = { courses: [{
+    slug: 'a/b', title: 'T', instructor: 'I', courseUrl: 'https://x',
+    subscribed: false, contentType: 'default',
+    categories: [{ title: 'Lessons', videos: [makeVideo({
+      bbcMaestroIndex: 1, title: 'PlainTitle', localPath: null, // ← null, force legacy fallback
+    })] }],
+  }] };
+  const result = copyCourse(subRoot, index, 'a/b');
+  assert.equal(result.copied, 1);
+});
+
+test('copyCourse: resolves PRE-amp-strip legacy candidate when only the &-preserving file exists on disk', () => {
+  const subRoot = join(root, 'copyCourse-amp');
+  mkdirSync(subRoot, { recursive: true });
+  // Simulate a pre-strip file: name preserves `&` per the older sanitize rule.
+  // Use legacySanitizeFilenamePreAmpStrip to compute the on-disk filename.
+  const titleWithAmp = 'Puppies & nail trims';
+  const catPre = legacySanitizeFilenamePreAmpStrip('Steve Mann');
+  const titlePre = legacySanitizeFilenamePreAmpStrip(titleWithAmp);
+  const preFixPath = join(subRoot, 'courses', 'a/b', 'videos', catPre, `1-${titlePre}.webm`);
+  writeStubWebmWithCues(preFixPath);
+  // Make sure the post-fix path does NOT exist.
+  const postFixPath = legacyDeriveOutputPath(subRoot, 'a/b', 'Steve Mann', 1, titleWithAmp);
+  assert.equal(existsSync(postFixPath), false, 'sanity: post-fix path must not exist for this test');
+
+  const index = { courses: [{
+    slug: 'a/b', title: 'T', instructor: 'I', courseUrl: 'https://x',
+    subscribed: false, contentType: 'default',
+    categories: [{ title: 'Steve Mann', videos: [makeVideo({
+      bbcMaestroIndex: 1, title: titleWithAmp, localPath: null,
+    })] }],
+  }] };
+  const result = copyCourse(subRoot, index, 'a/b');
+  assert.equal(result.copied, 1, 'pre-amp-strip candidate must be picked up');
+});
+
+// ── runCopy: end-to-end including lock + index.json roundtrip ────────────────
+
+test('runCopy: refuses without --i-have-re-fetched when MIGRATION_REQUIRES_REFETCH_AFTER is null', async () => {
+  const subRoot = join(root, 'runCopy-gated');
+  mkdirSync(subRoot, { recursive: true });
+  const indexPath = join(subRoot, 'index.json');
+  writeFileSync(indexPath, JSON.stringify({ lastFetched: '2026-05-13T00:00:00.000Z', courses: [] }));
+  await assert.rejects(
+    runCopy(subRoot, indexPath, { iHaveReFetched: false }),
+    /Refusing to run --copy/,
+  );
+});
+
+test('runCopy: with --i-have-re-fetched, processes courses and updates index.json', async () => {
+  const subRoot = join(root, 'runCopy-happy');
+  mkdirSync(subRoot, { recursive: true });
+  const sourcePath = legacyDeriveOutputPath(subRoot, 'a/b', 'Lessons', 1, 'V');
+  writeStubWebmWithCues(sourcePath);
+  const indexPath = join(subRoot, 'index.json');
+  writeFileSync(indexPath, JSON.stringify({
+    lastFetched: '2026-05-13T00:00:00.000Z',
+    courses: [{
+      slug: 'a/b', title: 'T', instructor: 'I', courseUrl: 'https://x',
+      subscribed: false, contentType: 'default',
+      categories: [{ title: 'Lessons', videos: [makeVideo({
+        bbcMaestroIndex: 1, title: 'V', localPath: sourcePath,
+      })] }],
+    }],
+  }));
+  const result = await runCopy(subRoot, indexPath, { iHaveReFetched: true, write: () => {} });
+  assert.equal(result.coursesProcessed, 1);
+  assert.equal(result.totalCopied, 1);
+  assert.equal(result.errors.length, 0);
+  // Index was rewritten with new localPath.
+  const updatedIndex = JSON.parse(readFileSync(indexPath, 'utf8'));
+  const v2Path = updatedIndex.courses[0].categories[0].videos[0].localPath;
+  assert.match(v2Path, /Season 01.*s01e01 - V\.webm$/);
 });

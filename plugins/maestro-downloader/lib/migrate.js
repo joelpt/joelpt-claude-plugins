@@ -16,19 +16,24 @@
  * exposes `runPlan` (and stubs for the other commands, coming in follow-up
  * commits) so the planner can be exercised from tests.
  */
-import { readFileSync, existsSync, statSync, copyFileSync, mkdirSync } from 'node:fs';
+import { readFileSync, existsSync, statSync, copyFileSync, mkdirSync, writeFileSync, renameSync, openSync, readSync, closeSync, fsyncSync } from 'node:fs';
+import { createHash, randomInt } from 'node:crypto';
 import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { config as dotenvConfig } from 'dotenv';
-import { loadIndex } from './index-utils.js';
+import { atomicWriteJson, loadIndex } from './index-utils.js';
 import {
   enumerateSeasons,
   deriveOutputPath as v2DeriveOutputPath,
   legacyDeriveOutputPathCandidates,
   showFolderName,
+  showDirPath,
+  seasonDirPath,
 } from './layout.js';
+import { renderTvShowNfo, renderSeasonNfo, renderEpisodeNfo } from './nfo.js';
 import { hasCompletionCues } from './index-utils.js';
+import { acquireLock, releaseLock, installShutdownReleaser } from './migration-lock.js';
 
 const ENV_PATH = join(homedir(), '.claude', 'plugins', 'maestro-downloader', '.env');
 
@@ -184,11 +189,249 @@ export function runPlan(root, indexPath, { write } = {}) {
 }
 
 /** USER_TODO sentinel: --copy refuses to run unless the index has been
- *  re-fetched after the Phase 1.5 scraper rewrite landed. Today this is set
- *  to a placeholder until Phase 1.5 ships. The runtime gate prevents users
- *  from migrating against the broken-scraper categories.
+ *  re-fetched with the v2 scraper. Until Phase 1.5 ships, --copy MUST be
+ *  invoked with the explicit `--i-have-re-fetched` flag — the runtime gate
+ *  prevents accidental migration against the broken-scraper categories.
+ *  After Phase 1.5 ships, update this constant to the commit SHA of the
+ *  scraper rewrite so the gate can auto-check `lastFetched` against it.
  */
-export const MIGRATION_REQUIRES_REFETCH_AFTER = '<phase-1.5-not-yet-shipped>';
+export const MIGRATION_REQUIRES_REFETCH_AFTER = null;
+
+const RECEIPTS_DIR = '.migration';
+
+function receiptPath(root, courseSlug) {
+  // Use the same sanitize rule as the show folder for consistent receipt names.
+  const safe = courseSlug.replace(/[/\\]/g, '_');
+  return join(root, RECEIPTS_DIR, `${safe}.json`);
+}
+
+function loadReceipt(root, courseSlug) {
+  const p = receiptPath(root, courseSlug);
+  if (!existsSync(p)) return null;
+  try { return JSON.parse(readFileSync(p, 'utf8')); } catch { return null; }
+}
+
+function writeReceipt(root, courseSlug, receipt) {
+  const p = receiptPath(root, courseSlug);
+  mkdirSync(dirname(p), { recursive: true });
+  writeFileSync(p, JSON.stringify(receipt, null, 2), 'utf8');
+  return p;
+}
+
+function sha256OfFile(path) {
+  const h = createHash('sha256');
+  const fd = openSync(path, 'r');
+  try {
+    const buf = Buffer.allocUnsafe(64 * 1024);
+    let read;
+    while ((read = readSync(fd, buf, 0, buf.length, null)) > 0) {
+      h.update(buf.slice(0, read));
+    }
+  } finally {
+    closeSync(fd);
+  }
+  return h.digest('hex');
+}
+
+/** Deterministic 5% sample selector — uses crypto.randomInt for unbiased
+ *  selection. Returns the indices to sample. Caller controls timing of the
+ *  sample to match the receipt's intent.
+ */
+function pickSampleIndices(total, fraction = 0.05) {
+  if (total <= 0) return [];
+  const sampleCount = Math.max(1, Math.round(total * fraction));
+  const indices = new Set();
+  while (indices.size < sampleCount && indices.size < total) {
+    indices.add(randomInt(total));
+  }
+  return [...indices].sort((a, b) => a - b);
+}
+
+/**
+ * Copy a single file with the `.copying` staging + atomic rename pattern.
+ * Returns the bytes written. Throws on any mismatch or verification failure.
+ *
+ *  1. mkdir-p destination dir
+ *  2. copyFileSync(src, dest.copying)
+ *  3. fsync the copy
+ *  4. hasCompletionCues(dest.copying) must pass (.webm only)
+ *  5. statSync(dest.copying).size === statSync(src).size
+ *  6. renameSync(dest.copying, dest) — atomic on same filesystem
+ */
+function copyWithVerification(src, dest, { checkCues = true } = {}) {
+  mkdirSync(dirname(dest), { recursive: true });
+  const staging = `${dest}.copying`;
+  copyFileSync(src, staging);
+  // fsync so the verification reads from disk, not page cache.
+  const fd = openSync(staging, 'r+');
+  try { fsyncSync(fd); } finally { closeSync(fd); }
+
+  const srcSize = statSync(src).size;
+  const dstSize = statSync(staging).size;
+  if (srcSize !== dstSize) {
+    // Best-effort cleanup of the staging file before throwing.
+    try { renameSync(staging, staging + '.failed'); } catch { /* ignore */ }
+    throw new Error(`size mismatch copying ${src} → ${dest} (src=${srcSize}, dst=${dstSize})`);
+  }
+  if (checkCues && !hasCompletionCues(staging)) {
+    try { renameSync(staging, staging + '.failed'); } catch { /* ignore */ }
+    throw new Error(`copied .webm at ${staging} lacks Matroska Cues element — copy is corrupt or source was incomplete`);
+  }
+  renameSync(staging, dest);
+  return dstSize;
+}
+
+/** Update a video's localPath in the in-memory index object to its v2 target.
+ *  Walks subcategories recursively. Returns true if found+updated.
+ */
+function updateLocalPath(course, lessonUrl, newPath, downloadedAt) {
+  function walk(categories) {
+    if (!Array.isArray(categories)) return false;
+    for (const cat of categories) {
+      if (Array.isArray(cat.videos)) {
+        const idx = cat.videos.findIndex(v => v.lessonUrl === lessonUrl);
+        if (idx !== -1) {
+          cat.videos[idx] = { ...cat.videos[idx], localPath: newPath };
+          if (downloadedAt) cat.videos[idx].downloadedAt = downloadedAt;
+          return true;
+        }
+      }
+      if (Array.isArray(cat.subcategories)) {
+        if (walk(cat.subcategories)) return true;
+      }
+    }
+    return false;
+  }
+  return walk(course.categories);
+}
+
+/**
+ * Run the --copy phase for a single course. Returns `{ slug, copied, skipped,
+ * receipt }`. Throws on irrecoverable errors (caller decides whether to abort
+ * the whole migration or move on).
+ *
+ * Pre-flight: every video where `completed === true` must have a resolvable
+ * source path. If any video fails this check, throws BEFORE any copy starts.
+ */
+export function copyCourse(root, index, courseSlug, { write = () => {}, force = false } = {}) {
+  const course = (index.courses ?? []).find(c => c.slug === courseSlug);
+  if (!course) throw new Error(`Course not found in index: ${courseSlug}`);
+
+  // Idempotency: if a receipt exists, this course was already migrated.
+  const prior = loadReceipt(root, courseSlug);
+  if (prior && !force) {
+    write(`[${courseSlug}] already migrated (receipt at ${receiptPath(root, courseSlug)}); use force:true to re-run`);
+    return { slug: courseSlug, copied: 0, skipped: prior.actions?.length ?? 0, receipt: prior };
+  }
+
+  const plan = planCourse(root, course);
+  if (plan.problems.length > 0) {
+    const summary = plan.problems.map(p => `${p.kind}: ${p.video.title} — ${p.detail}`).join('\n  ');
+    throw new Error(`[${courseSlug}] pre-flight failed (${plan.problems.length} problems):\n  ${summary}`);
+  }
+  if (plan.actions.length === 0) {
+    write(`[${courseSlug}] nothing to copy (no completed videos)`);
+    return { slug: courseSlug, copied: 0, skipped: 0, receipt: null };
+  }
+
+  // Write tvshow.nfo + season.nfo BEFORE copying videos so the show folder
+  // exists; harmless if --copy aborts mid-course.
+  const seasons = enumerateSeasons(course);
+  const showDir = showDirPath(root, course);
+  mkdirSync(showDir, { recursive: true });
+  writeFileSync(join(showDir, 'tvshow.nfo'), renderTvShowNfo(course, seasons), 'utf8');
+  for (const s of seasons) {
+    const dir = seasonDirPath(root, course, s);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'season.nfo'), renderSeasonNfo(s), 'utf8');
+  }
+
+  // Per-video copy with verification.
+  const receiptActions = [];
+  const sampleIndices = new Set(pickSampleIndices(plan.actions.length, 0.05));
+  for (let i = 0; i < plan.actions.length; i++) {
+    const action = plan.actions[i];
+    write(`[${courseSlug}] COPY ${i + 1}/${plan.actions.length}: ${action.to}`);
+    const bytes = copyWithVerification(action.from, action.to);
+    let sha256 = null;
+    if (sampleIndices.has(i)) {
+      sha256 = sha256OfFile(action.to);
+    }
+    receiptActions.push({
+      from: action.from, to: action.to, sizeBytes: bytes,
+      season: action.season, episode: action.episode,
+      sha256: sha256,
+      sampled: sampleIndices.has(i),
+    });
+
+    // Write the per-episode .nfo right next to the .webm.
+    const epi = seasons.find(s => s.seasonNumber === action.season)?.videos?.find(e => e.episodeNumber === action.episode);
+    if (epi) {
+      const nfoPath = action.to.replace(/\.webm$/, '.nfo');
+      writeFileSync(nfoPath, renderEpisodeNfo(course, seasons.find(s => s.seasonNumber === action.season), epi), 'utf8');
+    }
+
+    // Update in-memory index's localPath for this video so we can write
+    // back after all copies succeed.
+    const epiVideo = epi?.video;
+    if (epiVideo) updateLocalPath(course, epiVideo.lessonUrl, action.to, epiVideo.downloadedAt);
+  }
+
+  const receipt = {
+    slug: courseSlug,
+    copiedAt: new Date().toISOString(),
+    actions: receiptActions,
+    sampleFraction: 0.05,
+    verifiedAt: null,
+  };
+  writeReceipt(root, courseSlug, receipt);
+
+  return { slug: courseSlug, copied: receiptActions.length, skipped: 0, receipt };
+}
+
+/**
+ * Run --copy across every course in the index. Acquires the migration lock.
+ * Writes the updated index.json (with new localPath fields) at the end of
+ * each successful course. Refuses to run unless --i-have-re-fetched is set OR
+ * MIGRATION_REQUIRES_REFETCH_AFTER is satisfied by the index's lastFetched.
+ *
+ * Returns `{ coursesProcessed, totalCopied, errors[] }`.
+ */
+export async function runCopy(root, indexPath, { iHaveReFetched = false, write = (s) => console.log(s), force = false } = {}) {
+  if (!iHaveReFetched && MIGRATION_REQUIRES_REFETCH_AFTER === null) {
+    throw new Error(
+      'Refusing to run --copy: the v2 scraper rewrite (Phase 1.5) has not yet shipped, ' +
+      'and your index.json is presumed to come from the v1 (broken) scraper. ' +
+      'Either wait for Phase 1.5 + re-fetch, OR pass --i-have-re-fetched if you are SURE ' +
+      'the current index reflects re-scraped data.',
+    );
+  }
+
+  acquireLock(root);
+  const removeShutdownHandler = installShutdownReleaser(root);
+  try {
+    const index = loadIndex(indexPath);
+    const errors = [];
+    let coursesProcessed = 0;
+    let totalCopied = 0;
+    for (const course of index.courses ?? []) {
+      try {
+        const result = copyCourse(root, index, course.slug, { write, force });
+        coursesProcessed++;
+        totalCopied += result.copied;
+        // Persist the index.json updates after each course (resumable).
+        await atomicWriteJson(indexPath, index);
+      } catch (e) {
+        errors.push({ slug: course.slug, error: e.message });
+        write(`✗ [${course.slug}] ${e.message}`);
+      }
+    }
+    return { coursesProcessed, totalCopied, errors };
+  } finally {
+    removeShutdownHandler();
+    releaseLock(root);
+  }
+}
 
 async function main() {
   dotenvConfig({ path: ENV_PATH, override: false });
@@ -209,9 +452,20 @@ async function main() {
     process.exit(result.summary.totalProblems > 0 ? 1 : 0);
   }
   if (args.includes('--copy')) {
-    console.error('--copy is not yet implemented. The autonomous run has only shipped --plan so far.');
-    console.error('Re-run with --plan to preview the migration.');
-    process.exit(2);
+    const iHaveReFetched = args.includes('--i-have-re-fetched');
+    try {
+      const result = await runCopy(root, indexPath, { iHaveReFetched });
+      console.log(`\n--copy complete: ${result.coursesProcessed} courses processed, ${result.totalCopied} files copied`);
+      if (result.errors.length > 0) {
+        console.error(`\n${result.errors.length} course(s) had errors:`);
+        for (const e of result.errors) console.error(`  ${e.slug}: ${e.error}`);
+        process.exit(1);
+      }
+      process.exit(0);
+    } catch (e) {
+      console.error(`✗ --copy aborted: ${e.message}`);
+      process.exit(1);
+    }
   }
   if (args.includes('--verify')) {
     console.error('--verify is not yet implemented.');
