@@ -1,17 +1,69 @@
+default:
+    @just --list
+
+# ── Dev ──────────────────────────────────────────────────────────────────────
+
 test:
     node --test tst/*.test.js
 
 test-integration:
     node --test tst/integration/*.test.js
 
-run:
-    node lib/queue.js
-
 build:
     @echo 'No build step needed (pure Node.js)'
+
+# ── Run the bespoke SPA library ──────────────────────────────────────────────
 
 serve:
     node lib/serve.js
 
+# ── v1 download queue (until Phase 5 TUI lands, this is the runner) ──────────
+
+run:
+    node lib/queue.js
+
+# ── v2 migration workflow (run in order, then verify in Plex) ────────────────
+
+# Phase 1.4: capture BBC Maestro DOM fixtures (logs in, hits 6 known courses,
+# saves tst/fixtures/<slug>.post-render.html). Crawls your live account.
+capture-fixtures *ARGS:
+    node lib/capture-fixtures.js {{ARGS}}
+
+# Phase 1.3: dry-run the schema v1→v2 migration of <root>/index.json.
+# Reports completion count + validates the would-be-migrated index.
+# Does not modify the live file.
+migrate-schema-v2-dry:
+    node lib/migrate-schema-v2.js --dry-run
+
+# Phase 1.3: actually migrate <root>/index.json from v1 to v2 shape.
+# Writes a fresh backup first; validates and asserts completion-count parity.
+migrate-schema-v2:
+    node lib/migrate-schema-v2.js
+
+# Phase 3: preview the file-migration plan (557+ COPY actions across 23 courses,
+# ~41 GB). Read-only — does not touch the filesystem.
+migrate-plan:
+    node lib/migrate.js --plan
+
+# Phase 3: copy v1 sources → v2 layout (per-course .copying staging + size +
+# Matroska cues + 5% SHA-256 sample; receipts under .migration/). Refuses to
+# run unless --i-have-re-fetched is passed (Phase 1.5 scraper rewrite gate).
+# Example: just migrate-copy --i-have-re-fetched
+migrate-copy *ARGS:
+    node lib/migrate.js --copy {{ARGS}}
+
+# Phase 3: re-check every receipt's existence + size + cues + SHA-256 sample.
+# Stamps verifiedAt on success — required for --cleanup eligibility.
+migrate-verify:
+    node lib/migrate.js --verify
+
+# Phase 3: delete v1 sources for courses whose verifiedAt is within 24h, then
+# rename legacy courses/ → courses.deleted-YYYY-MM-DD/ (NOT rm -rf).
+migrate-cleanup:
+    node lib/migrate.js --cleanup
+
+# ── Smoke ────────────────────────────────────────────────────────────────────
+
 smoke:
-    @echo 'Manual smoke test: /setup -> /fetch-list -> /list -> /download <course> -> /serve'
+    @echo 'Smoke (pre-v2): /setup -> /fetch-list -> /list -> /download -> just serve'
+    @echo 'Smoke (v2 migration): just migrate-schema-v2-dry -> just migrate-schema-v2 -> just capture-fixtures -> /fetch-list (after Phase 1.5 ships) -> just migrate-plan -> just migrate-copy --i-have-re-fetched -> just migrate-verify -> just migrate-cleanup -> Plex library scan (see docs/PLEX_SETUP.md)'
