@@ -57,15 +57,16 @@ Format key: `[BLOCKING]` = no meaningful forward progress on related work; `[NON
 
 - [ ] [BLOCKING] **Phase 1.4: capture DOM fixtures from live BBC Maestro yourself**
 
-      Context: Phase 1.4 needs HTML fixtures captured via `page.content()` after the BBC Maestro page renders, so Phase 1.5 can write the new scraper against real markup. Originally this was tagged "read-only autonomous" — that's wrong. It would crawl your live BBC Maestro account via Playwright (with login + reCAPTCHA + session cookies + rate-limit risk). Better that you trigger it yourself when ready.
+      Context: Phase 1.5 (the scraper rewrite) needs HTML fixtures captured via `page.content()` after the BBC Maestro page renders. Crawling your live account (login + reCAPTCHA + session cookies + rate-limit risk) is something you trigger when ready, not the autonomous run.
 
-      The autonomous run will write the helper script `lib/capture-fixtures.js` for you (commits separately). Then:
+      The helper script `lib/capture-fixtures.js` has shipped. To use it:
 
-      1. Run `node lib/capture-fixtures.js` once — it logs in with your `.env` credentials, visits the 5 known-multi-category courses (eric-vetro, alan-moore, mark-ronson, oliver-burkeman, owen-o-kane) and 1 known-good control course, and saves `tst/fixtures/<slug>.post-render.html` for each.
-      2. `git add tst/fixtures/ && /commit-commands:commit` the captured fixtures.
-      3. Resume the autonomous run; Phase 1.5 (scrapeCoursePage rewrite) will use the fixtures as its test inputs.
+      1. Run `MAESTRO_EMAIL=... MAESTRO_PASSWORD=... node lib/capture-fixtures.js` (or rely on `.env` if /setup wrote those values). With no args it captures the 6 default courses (eric-vetro/singing, agatha-christie/writing, owen-o-kane/a-life-less-anxious, mark-ronson/music-production, alan-moore/writing-fiction, oliver-burkeman/time-management).
+      2. Captures land at `tst/fixtures/<slug>.post-render.html` plus a `tst/fixtures/README.md`.
+      3. Commit those: `git add tst/fixtures/ && /commit-commands:commit`.
+      4. Resume the autonomous run; Phase 1.5 will TDD scrapeCoursePage against the captured HTML.
 
-      Why human: live login + crawl against your account, not something the autonomous run should initiate without your knowledge.
+      Why human: live login + crawl against your account.
 
 - [ ] [BLOCKING] **Phase 1.3 execution: run the schema v2 migration against live `~/xfer/maestro/index.json`**
 

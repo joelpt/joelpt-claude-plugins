@@ -72,6 +72,9 @@ const LIB_MODULES = [
   './lib/reconcile.js',     // transitively imported by queue.js
   './lib/fix-index.js',     // standalone CLI script, but pattern consistency matters
   './lib/tag-courses.js',   // standalone CLI script, but pattern consistency matters
+  './lib/migrate.js',       // Phase 3 migration CLI
+  './lib/migrate-schema-v2.js', // Phase 1.3 schema upgrade script
+  './lib/capture-fixtures.js',  // Phase 1.4 Playwright DOM capture helper
 ];
 
 for (const mod of LIB_MODULES) {
