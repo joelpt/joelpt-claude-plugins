@@ -2,11 +2,12 @@ import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { readFileSync, writeFileSync, mkdtempSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdtempSync, existsSync } from 'node:fs';
 
 import {
   mergeCourses,
   atomicWriteJson,
+  loadIndex,
   isStaleCache,
   derive1080pUrl,
   deriveOutputPath,
@@ -17,6 +18,7 @@ import {
   isFileComplete,
   MIN_COMPLETE_FILE_BYTES,
 } from '../lib/index-utils.js';
+import { IndexValidationError } from '../lib/schema.js';
 
 // ── mergeCourses ────────────────────────────────────────────────────────────
 
@@ -595,4 +597,247 @@ test('isFileComplete: returns false for undefined path', () => {
 
 test('isFileComplete: returns false for non-existent path', () => {
   assert.equal(isFileComplete('/no/such/path/missing.webm'), false);
+});
+
+// ── v2 mergeCourses: subcategory recursion (data-loss bug fix) ───────────────
+
+test('mergeCourses v2: preserves completed when video moves from cat.videos to subcategory', () => {
+  // This is the precise blind spot the v1 code had: existing index has video
+  // under `cat.videos`; fresh-scrape (with new selectors) puts it under
+  // `cat.subcategories[].videos`. Completion state must survive the relocation.
+  const existing = [{
+    slug: 'eric/singing',
+    title: 'Sing',
+    instructor: 'Eric',
+    courseUrl: 'https://x/c',
+    categories: [{
+      title: 'Vocal Exercises',
+      videos: [{
+        bbcMaestroIndex: 1,
+        title: 'Breathing 1',
+        lessonUrl: 'https://x/lesson/breathing-1',
+        manifestUrl: 'https://x/m.m3u8',
+        completed: true,
+        downloadedAt: '2026-05-01T00:00:00.000Z',
+        localPath: '/x/file.webm',
+      }],
+    }],
+  }];
+  const fresh = [{
+    slug: 'eric/singing',
+    title: 'Sing',
+    instructor: 'Eric',
+    courseUrl: 'https://x/c',
+    categories: [{
+      title: 'Vocal Exercises',
+      subcategories: [{
+        title: 'Breathing Fundamentals',
+        videos: [{
+          bbcMaestroIndex: 1,
+          title: 'Breathing 1 (updated)',
+          lessonUrl: 'https://x/lesson/breathing-1',
+          manifestUrl: 'https://x/m.m3u8',
+        }],
+      }],
+    }],
+  }];
+  const result = mergeCourses(existing, fresh);
+  const movedVideo = result[0].categories[0].subcategories[0].videos[0];
+  assert.equal(movedVideo.completed, true, 'completion must survive cat→subcat relocation');
+  assert.equal(movedVideo.downloadedAt, '2026-05-01T00:00:00.000Z');
+  assert.equal(movedVideo.localPath, '/x/file.webm');
+  // Scraper-state still wins (overwrite):
+  assert.equal(movedVideo.title, 'Breathing 1 (updated)');
+});
+
+test('mergeCourses v2: preserves completed when video moves from subcategory to cat.videos', () => {
+  // The reverse direction also matters.
+  const existing = [{
+    slug: 'a/b', title: 'T', instructor: 'I', courseUrl: 'https://x',
+    categories: [{
+      title: 'Cat',
+      subcategories: [{ title: 'Sub', videos: [{
+        bbcMaestroIndex: 1, title: 'V', lessonUrl: 'https://x/v', manifestUrl: 'https://x/m.m3u8',
+        completed: true, downloadedAt: '2026-05-01T00:00:00.000Z', localPath: '/x/v.webm',
+      }]}],
+    }],
+  }];
+  const fresh = [{
+    slug: 'a/b', title: 'T', instructor: 'I', courseUrl: 'https://x',
+    categories: [{ title: 'Cat', videos: [{
+      bbcMaestroIndex: 1, title: 'V', lessonUrl: 'https://x/v', manifestUrl: 'https://x/m.m3u8',
+    }]}],
+  }];
+  const moved = mergeCourses(existing, fresh)[0].categories[0].videos[0];
+  assert.equal(moved.completed, true);
+  assert.equal(moved.localPath, '/x/v.webm');
+});
+
+test('mergeCourses v2: deeply nested subcategories are walked', () => {
+  // Defensive: even if scraper produces deeper trees, the walk must reach them.
+  const existing = [{
+    slug: 'a/b', title: 'T', instructor: 'I', courseUrl: 'https://x',
+    categories: [{
+      title: 'Top',
+      subcategories: [{
+        title: 'Mid',
+        subcategories: [{
+          title: 'Leaf',
+          videos: [{
+            bbcMaestroIndex: 1, title: 'V', lessonUrl: 'https://x/v', manifestUrl: 'https://x/m.m3u8',
+            completed: true, downloadedAt: '2026-05-01T00:00:00.000Z', localPath: '/x/v.webm',
+          }],
+        }],
+      }],
+    }],
+  }];
+  const fresh = structuredClone(existing); // identical shape; just exercising the walk
+  delete fresh[0].categories[0].subcategories[0].subcategories[0].videos[0].completed;
+  delete fresh[0].categories[0].subcategories[0].subcategories[0].videos[0].downloadedAt;
+  delete fresh[0].categories[0].subcategories[0].subcategories[0].videos[0].localPath;
+  const merged = mergeCourses(existing, fresh);
+  const v = merged[0].categories[0].subcategories[0].subcategories[0].videos[0];
+  assert.equal(v.completed, true);
+  assert.equal(v.localPath, '/x/v.webm');
+});
+
+test('mergeCourses v2: preserves course-level subscribed field', () => {
+  const existing = [{
+    slug: 'a/b', title: 'T', instructor: 'I', courseUrl: 'https://x',
+    subscribed: true, contentType: 'music',
+    categories: [{ title: 'C', videos: [] }],
+  }];
+  const fresh = [{
+    slug: 'a/b', title: 'T-updated', instructor: 'I', courseUrl: 'https://x',
+    categories: [{ title: 'C-updated', videos: [] }],
+  }];
+  const out = mergeCourses(existing, fresh)[0];
+  assert.equal(out.subscribed, true, 'subscribed user-state must be preserved');
+  assert.equal(out.contentType, 'music');
+  assert.equal(out.title, 'T-updated', 'title scraper-state must overwrite');
+});
+
+test('mergeCourses v2: fresh course (no existing) defaults subscribed=false and contentType=default', () => {
+  // Required so a freshly-discovered course passes v2 schema validation
+  // (which makes both fields required). Without these defaults the first
+  // post-migration write would reject mid-flight.
+  const fresh = [{
+    slug: 'new/course', title: 'T', instructor: 'I', courseUrl: 'https://x',
+    categories: [{ title: 'C', videos: [] }],
+  }];
+  const out = mergeCourses([], fresh)[0];
+  assert.equal(out.subscribed, false);
+  assert.equal(out.contentType, 'default');
+});
+
+test('mergeCourses v2: fresh contentType wins over default when supplied', () => {
+  const fresh = [{
+    slug: 'new/course', title: 'T', instructor: 'I', courseUrl: 'https://x',
+    contentType: 'music',
+    categories: [{ title: 'C', videos: [] }],
+  }];
+  const out = mergeCourses([], fresh)[0];
+  assert.equal(out.contentType, 'music');
+});
+
+test('mergeCourses v2: existing user-state beats fresh and beats default', () => {
+  const existing = [{
+    slug: 'a/b', title: 'T', instructor: 'I', courseUrl: 'https://x',
+    subscribed: true, contentType: 'visual',
+    categories: [{ title: 'C', videos: [] }],
+  }];
+  const fresh = [{
+    slug: 'a/b', title: 'T', instructor: 'I', courseUrl: 'https://x',
+    contentType: 'music',
+    categories: [{ title: 'C', videos: [] }],
+  }];
+  const out = mergeCourses(existing, fresh)[0];
+  assert.equal(out.subscribed, true);
+  assert.equal(out.contentType, 'visual');
+});
+
+test('mergeCourses v2: duplicate lessonUrl in existing — completed entry wins', () => {
+  // Defensive: if an existing index somehow contains two videos with the same
+  // lessonUrl (one completed, one not), the completion state must survive.
+  const existing = [{
+    slug: 'a/b', title: 'T', instructor: 'I', courseUrl: 'https://x',
+    categories: [
+      { title: 'A', videos: [{
+        bbcMaestroIndex: 1, title: 'V', lessonUrl: 'https://x/v', manifestUrl: 'https://x/m.m3u8',
+        completed: false, downloadedAt: null, localPath: null,
+      }]},
+      { title: 'B', videos: [{
+        bbcMaestroIndex: 1, title: 'V', lessonUrl: 'https://x/v', manifestUrl: 'https://x/m.m3u8',
+        completed: true, downloadedAt: '2026-05-01T00:00:00.000Z', localPath: '/x/v.webm',
+      }]},
+    ],
+  }];
+  const fresh = [{
+    slug: 'a/b', title: 'T', instructor: 'I', courseUrl: 'https://x',
+    categories: [{ title: 'C', videos: [{
+      bbcMaestroIndex: 1, title: 'V', lessonUrl: 'https://x/v', manifestUrl: 'https://x/m.m3u8',
+    }]}],
+  }];
+  const out = mergeCourses(existing, fresh)[0].categories[0].videos[0];
+  assert.equal(out.completed, true, 'completed-true duplicate must win the dedup');
+  assert.equal(out.localPath, '/x/v.webm');
+});
+
+// ── atomicWriteJson + loadIndex: v2 validation hook ──────────────────────────
+
+test('atomicWriteJson: v2 payload validates before writing; rejects malformed and leaves no .tmp', () => {
+  const tmpDir = mkdtempSync(join(tmpdir(), 'maestro-aw-'));
+  const dest = join(tmpDir, 'index.json');
+  // Valid v2 payload writes cleanly.
+  const good = {
+    schemaVersion: 2,
+    lastFetched: '2026-05-13T00:00:00.000Z',
+    courses: [{
+      slug: 'a/b', title: 'T', instructor: 'I', courseUrl: 'https://x',
+      subscribed: true, contentType: 'music',
+      categories: [{ title: 'C', videos: [{
+        bbcMaestroIndex: 1, title: 'V',
+        lessonUrl: 'https://x/v', manifestUrl: 'https://x/m.m3u8',
+        completed: false, downloadedAt: null, localPath: null,
+      }]}],
+    }],
+  };
+  assert.doesNotThrow(() => atomicWriteJson(dest, good));
+  // Malformed v2 payload is rejected; .tmp must not be left behind (we
+  // validate BEFORE the tmp write, so a throw never touches the filesystem).
+  const bad = { ...good, schemaVersion: 2, lastFetched: 'not-a-date' };
+  assert.throws(() => atomicWriteJson(dest, bad), IndexValidationError);
+  assert.equal(existsSync(dest + '.tmp'), false, 'failed v2 validation must not leave a .tmp behind');
+});
+
+test('atomicWriteJson: pre-v2 payload (no schemaVersion) passes through', () => {
+  const tmpDir = mkdtempSync(join(tmpdir(), 'maestro-aw-'));
+  const dest = join(tmpDir, 'index.json');
+  // No schemaVersion → don't validate. This is the migration-safety path.
+  const v1ish = { lastFetched: '2026-05-13T00:00:00.000Z', courses: [] };
+  assert.doesNotThrow(() => atomicWriteJson(dest, v1ish));
+  const read = JSON.parse(readFileSync(dest, 'utf8'));
+  assert.equal(read.lastFetched, '2026-05-13T00:00:00.000Z');
+});
+
+test('loadIndex: validates v2 file, accepts pre-v2 file', () => {
+  const tmpDir = mkdtempSync(join(tmpdir(), 'maestro-li-'));
+  const dest = join(tmpDir, 'index.json');
+  // Pre-v2: passes through.
+  writeFileSync(dest, JSON.stringify({ lastFetched: '2026-05-13T00:00:00.000Z', courses: [] }));
+  assert.doesNotThrow(() => loadIndex(dest));
+  // Valid v2: passes.
+  writeFileSync(dest, JSON.stringify({
+    schemaVersion: 2,
+    lastFetched: '2026-05-13T00:00:00.000Z',
+    courses: [],
+  }));
+  assert.doesNotThrow(() => loadIndex(dest));
+  // Malformed v2: rejected.
+  writeFileSync(dest, JSON.stringify({
+    schemaVersion: 2,
+    lastFetched: 'not-a-date',
+    courses: [],
+  }));
+  assert.throws(() => loadIndex(dest), IndexValidationError);
 });

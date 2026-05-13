@@ -1,5 +1,6 @@
-import { writeFileSync, renameSync, openSync, readSync, closeSync, statSync } from 'node:fs';
+import { writeFileSync, renameSync, readFileSync, openSync, readSync, closeSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import { validateIndex } from './schema.js';
 
 const STALE_DAYS = 30;
 
@@ -10,51 +11,94 @@ export function jitter(minMs, maxMs) { return Math.floor(minMs + Math.random() *
 // treated as a partial download (killed ffmpeg, disk-full abort, etc.).
 export const MIN_COMPLETE_FILE_BYTES = 1_000_000;
 
+// Field classification for course-level merge. Keep this list explicit — it's
+// the contract between the scraper (overwrites) and the user/runtime (preserved).
+const COURSE_USER_STATE = ['subscribed', 'contentType'];
+
+// Walk a category tree (with optional `subcategories[]`) and yield every
+// video. Used both to build the lookup map and to enumerate fresh videos.
+function* walkVideos(categories) {
+  if (!Array.isArray(categories)) return;
+  for (const cat of categories) {
+    if (Array.isArray(cat.videos)) {
+      for (const v of cat.videos) yield v;
+    }
+    if (Array.isArray(cat.subcategories)) {
+      yield* walkVideos(cat.subcategories);
+    }
+  }
+}
+
+// Recursively rebuild a fresh category tree, merging user-state from the
+// `existingVideosByUrl` map for any video whose lessonUrl matches.
+function mergeCategoryTree(freshCategories, existingVideosByUrl) {
+  if (!Array.isArray(freshCategories)) return freshCategories;
+  return freshCategories.map((cat) => {
+    const out = { ...cat };
+    if (Array.isArray(cat.videos)) {
+      out.videos = cat.videos.map((v) => {
+        const prev = existingVideosByUrl.get(v.lessonUrl);
+        return {
+          ...v,
+          completed: prev?.completed ?? false,
+          downloadedAt: prev?.downloadedAt ?? null,
+          localPath: prev?.localPath ?? null,
+          ...(prev?.actualResolution != null && { actualResolution: prev.actualResolution }),
+        };
+      });
+    }
+    if (Array.isArray(cat.subcategories)) {
+      out.subcategories = mergeCategoryTree(cat.subcategories, existingVideosByUrl);
+    }
+    return out;
+  });
+}
+
+/**
+ * Merge fresh-from-scrape course data with existing index data, preserving
+ * user-state fields and overwriting scraper-state fields.
+ *
+ * Field classification (mirror in tests):
+ *   Course-level user-state (preserve): subscribed, contentType
+ *   Course-level scraper-state (overwrite): title, instructor, category, courseUrl,
+ *     description, posterUrl, fanartUrl, instructorHeadshotUrl, categories
+ *   Video-level user-state (preserve): completed, downloadedAt, localPath, actualResolution
+ *   Video-level scraper-state (overwrite): title, lessonUrl, manifestUrl, bbcMaestroIndex, index
+ *
+ * Critical: walks BOTH `categories[].videos` AND `categories[].subcategories[].videos`
+ * recursively. A video moving from `category[0].videos[X]` to `category[0].subcategories[0].videos[X]`
+ * between scrapes must NOT lose its completion state (the v1 implementation had
+ * this blind spot — the "highest-impact data-loss bug" the v2 rewrite addresses).
+ */
+// Defaults applied when neither the existing course nor the fresh scrape
+// supplies a value. Required so v2 schema validation (which makes these fields
+// `required` on Course) passes after the migration sets `schemaVersion: 2`.
+const COURSE_USER_STATE_DEFAULTS = { subscribed: false, contentType: 'default' };
+
 export function mergeCourses(existing, fresh) {
   const existingBySlug = new Map(existing.map((c) => [c.slug, c]));
   const freshSlugs = new Set(fresh.map((c) => c.slug));
 
   const merged = fresh.map((freshCourse) => {
     const existingCourse = existingBySlug.get(freshCourse.slug);
-    if (!existingCourse) {
-      return {
-        ...freshCourse,
-        categories: freshCourse.categories.map((cat) => ({
-          ...cat,
-          videos: cat.videos.map((v) => ({
-            ...v,
-            completed: false,
-            downloadedAt: null,
-            localPath: null,
-          })),
-        })),
-      };
-    }
-
     const existingVideosByUrl = new Map();
-    for (const cat of existingCourse.categories) {
-      for (const v of cat.videos) {
-        existingVideosByUrl.set(v.lessonUrl, v);
+    if (existingCourse) {
+      for (const v of walkVideos(existingCourse.categories)) {
+        // Duplicate lessonUrl: prefer a completed entry over a not-completed one
+        // so completion state survives an upstream-corruption case.
+        const prior = existingVideosByUrl.get(v.lessonUrl);
+        if (!prior || (!prior.completed && v.completed)) existingVideosByUrl.set(v.lessonUrl, v);
       }
     }
 
-    return {
-      ...freshCourse,
-      contentType: existingCourse.contentType ?? freshCourse.contentType ?? 'default',
-      categories: freshCourse.categories.map((cat) => ({
-        ...cat,
-        videos: cat.videos.map((v) => {
-          const prev = existingVideosByUrl.get(v.lessonUrl);
-          return {
-            ...v,
-            completed: prev?.completed ?? false,
-            downloadedAt: prev?.downloadedAt ?? null,
-            localPath: prev?.localPath ?? null,
-            ...(prev?.actualResolution != null && { actualResolution: prev.actualResolution }),
-          };
-        }),
-      })),
-    };
+    const out = { ...freshCourse, categories: mergeCategoryTree(freshCourse.categories, existingVideosByUrl) };
+    // Preserve user-state from the existing course; fall back to fresh, then to defaults.
+    for (const k of COURSE_USER_STATE) {
+      const fromExisting = existingCourse?.[k];
+      const fromFresh = freshCourse[k];
+      out[k] = fromExisting ?? fromFresh ?? COURSE_USER_STATE_DEFAULTS[k];
+    }
+    return out;
   });
 
   for (const existingCourse of existing) {
@@ -66,7 +110,25 @@ export function mergeCourses(existing, fresh) {
   return merged;
 }
 
+/**
+ * Read index.json from disk. If the file's `schemaVersion === 2`, validate
+ * against the v2 schema and throw on failure. Pre-v2 files (no schemaVersion)
+ * pass through untouched — the migration writes the first v2 file.
+ */
+export function loadIndex(filepath) {
+  const raw = readFileSync(filepath, 'utf8');
+  const data = JSON.parse(raw);
+  if (data?.schemaVersion === 2) validateIndex(data);
+  return data;
+}
+
+/**
+ * Atomic write. If the payload declares `schemaVersion === 2`, validate first
+ * and refuse to write on failure (prevents shipping a corrupt v2 index).
+ * Pre-v2 payloads (no schemaVersion) pass through.
+ */
 export function atomicWriteJson(filepath, data) {
+  if (data?.schemaVersion === 2) validateIndex(data);
   const tmp = filepath + '.tmp';
   writeFileSync(tmp, JSON.stringify(data, null, 2) + '\n', 'utf8');
   renameSync(tmp, filepath);
