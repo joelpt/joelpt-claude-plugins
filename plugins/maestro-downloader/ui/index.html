@@ -193,16 +193,23 @@
     return el.textContent;
   }
 
-  function sanitize(name) {
-    return name.replace(/:/g, '-').replace(/[?*"<>|/\\]/g, '').replace(/\s+/g, ' ').trim();
+  // Walk a category tree (v1 cat.videos or v2 cat.subcategories[].videos) and
+  // yield every video. The server has already rewritten video.localPath to a
+  // URL-relative path, so the SPA just reads it directly.
+  function* walkVideos(categories) {
+    if (!Array.isArray(categories)) return;
+    for (const cat of categories) {
+      if (Array.isArray(cat.videos)) for (const v of cat.videos) yield v;
+      if (Array.isArray(cat.subcategories)) yield* walkVideos(cat.subcategories);
+    }
   }
 
-  function videoUrl(slug, catTitle, idx, title) {
-    return `/courses/${slug}/videos/${sanitize(catTitle)}/${idx}-${sanitize(title)}.webm`;
+  function videoUrl(v) {
+    return v.localPath ?? null;
   }
 
   function courseStats(course) {
-    const all = course.categories.flatMap(c => c.videos);
+    const all = [...walkVideos(course.categories)];
     const done = all.filter(v => v.completed).length;
     return { total: all.length, done };
   }
@@ -274,13 +281,14 @@
   }
 
   function buildVideoRow(course, cat, v) {
-    const url = videoUrl(course.slug, cat.title, v.index, v.title);
+    const url = videoUrl(v);
     const row = el('div', `video-row${v.completed ? '' : ' not-downloaded'}`);
-    row.appendChild(el('span', 'video-index', String(v.index)));
+    const idx = v.bbcMaestroIndex ?? v.index;
+    row.appendChild(el('span', 'video-index', String(idx)));
     row.appendChild(el('span', 'video-title', v.title));
     const status = el('span', `video-status${v.completed ? ' done' : ''}`, v.completed ? 'Downloaded' : 'Not downloaded');
     row.appendChild(status);
-    if (v.completed) {
+    if (v.completed && url) {
       row.addEventListener('click', () => nav({ course: course.slug, video: url }));
     }
     return row;
@@ -362,14 +370,25 @@
     app.appendChild(header);
 
     const cats = el('div', 'categories');
-    course.categories.forEach(cat => {
-      const section = el('div', 'category-section');
-      section.appendChild(el('div', 'category-title', cat.title));
-      const list = el('div', 'video-list');
-      cat.videos.forEach(v => list.appendChild(buildVideoRow(course, cat, v)));
-      section.appendChild(list);
-      cats.appendChild(section);
-    });
+    // Recursively render category/subcategory tree. Leaf categories show as
+    // sections titled with their full hierarchy (e.g. "Vocal Exercises → Breathing Fundamentals").
+    function renderCategoryTree(categoryList, parentTitle) {
+      for (const cat of categoryList) {
+        const fullTitle = parentTitle ? `${parentTitle} → ${cat.title}` : cat.title;
+        if (Array.isArray(cat.videos) && cat.videos.length > 0) {
+          const section = el('div', 'category-section');
+          section.appendChild(el('div', 'category-title', fullTitle));
+          const list = el('div', 'video-list');
+          cat.videos.forEach(v => list.appendChild(buildVideoRow(course, { ...cat, title: fullTitle }, v)));
+          section.appendChild(list);
+          cats.appendChild(section);
+        }
+        if (Array.isArray(cat.subcategories) && cat.subcategories.length > 0) {
+          renderCategoryTree(cat.subcategories, fullTitle);
+        }
+      }
+    }
+    renderCategoryTree(course.categories, null);
     app.appendChild(cats);
   }
 
@@ -387,15 +406,24 @@
 
     let foundVideo = null, foundCat = null;
     const flatList = [];
-    for (const cat of course.categories) {
-      for (const v of cat.videos) {
-        if (v.completed) {
-          const url = videoUrl(course.slug, cat.title, v.index, v.title);
-          flatList.push({ v, cat, url });
-          if (url === videoPath) { foundVideo = v; foundCat = cat; }
+    // Walk both v1 (cat.videos) and v2 (cat.subcategories[].videos) shapes.
+    function flatten(cats, parentTitle) {
+      if (!Array.isArray(cats)) return;
+      for (const cat of cats) {
+        const fullTitle = parentTitle ? `${parentTitle} → ${cat.title}` : cat.title;
+        if (Array.isArray(cat.videos)) {
+          for (const v of cat.videos) {
+            if (v.completed) {
+              const url = videoUrl(v);
+              flatList.push({ v, cat: { ...cat, title: fullTitle }, url });
+              if (url === videoPath) { foundVideo = v; foundCat = { ...cat, title: fullTitle }; }
+            }
+          }
         }
+        if (Array.isArray(cat.subcategories)) flatten(cat.subcategories, fullTitle);
       }
     }
+    flatten(course.categories, null);
 
     renderBreadcrumb([
       { label: 'Home', query: null },
@@ -423,7 +451,7 @@
     const meta = el('div', 'player-meta');
     meta.appendChild(el('div', 'cat-label', foundCat.title));
     meta.appendChild(el('h2', null, foundVideo.title));
-    meta.appendChild(el('div', 'index-label', `Lesson ${foundVideo.index} · ${course.instructor} — ${course.title}`));
+    meta.appendChild(el('div', 'index-label', `Lesson ${foundVideo.bbcMaestroIndex ?? foundVideo.index} · ${course.instructor} — ${course.title}`));
     container.appendChild(meta);
 
     const wrapper = el('div', 'video-wrapper');
