@@ -16,7 +16,7 @@
  * exposes `runPlan` (and stubs for the other commands, coming in follow-up
  * commits) so the planner can be exercised from tests.
  */
-import { readFileSync, existsSync, statSync, copyFileSync, mkdirSync, writeFileSync, renameSync, openSync, readSync, closeSync, fsyncSync } from 'node:fs';
+import { readFileSync, existsSync, statSync, copyFileSync, mkdirSync, writeFileSync, renameSync, openSync, readSync, closeSync, fsyncSync, readdirSync, unlinkSync, rmdirSync } from 'node:fs';
 import { createHash, randomInt } from 'node:crypto';
 import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
@@ -390,6 +390,164 @@ export function copyCourse(root, index, courseSlug, { write = () => {}, force = 
 }
 
 /**
+ * Verify a single course's receipt: every recorded target must still exist on
+ * disk, sizes must match, hasCompletionCues must still pass, and the SHA-256
+ * sample (5% of actions, the ones with `sampled: true` and `sha256` set in the
+ * receipt) must re-hash to the same value. Stamps `verifiedAt` on the receipt
+ * on success and writes it back. Returns `{ slug, ok, failures }`.
+ */
+export function verifyCourse(root, courseSlug, { write = () => {} } = {}) {
+  const receipt = loadReceipt(root, courseSlug);
+  if (!receipt) return { slug: courseSlug, ok: false, failures: [{ kind: 'NO_RECEIPT' }] };
+  const failures = [];
+  for (const a of receipt.actions ?? []) {
+    if (!existsSync(a.to)) {
+      failures.push({ kind: 'MISSING', target: a.to });
+      continue;
+    }
+    let size;
+    try { size = statSync(a.to).size; } catch { failures.push({ kind: 'STAT_ERROR', target: a.to }); continue; }
+    if (size !== a.sizeBytes) {
+      failures.push({ kind: 'SIZE_MISMATCH', target: a.to, recorded: a.sizeBytes, actual: size });
+      continue;
+    }
+    if (!hasCompletionCues(a.to)) {
+      failures.push({ kind: 'CUES_MISSING', target: a.to });
+      continue;
+    }
+    if (a.sampled && a.sha256) {
+      const actual = sha256OfFile(a.to);
+      if (actual !== a.sha256) {
+        failures.push({ kind: 'SHA256_MISMATCH', target: a.to, recorded: a.sha256, actual });
+      }
+    }
+  }
+  if (failures.length === 0) {
+    receipt.verifiedAt = new Date().toISOString();
+    writeReceipt(root, courseSlug, receipt);
+    write(`[${courseSlug}] ✓ verified (${receipt.actions.length} actions, ${receipt.actions.filter(a => a.sampled).length} hashed)`);
+    return { slug: courseSlug, ok: true, failures: [] };
+  }
+  // Failure: do NOT stamp verifiedAt.
+  write(`[${courseSlug}] ✗ ${failures.length} failure(s)`);
+  for (const f of failures) write(`    ${f.kind}: ${f.target ?? '(no path)'}`);
+  return { slug: courseSlug, ok: false, failures };
+}
+
+const VERIFY_FRESHNESS_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Clean up a single course's v1 sources, but ONLY if its receipt has a
+ * `verifiedAt` stamp within the last 24 hours. Removes each source file
+ * listed in the receipt; does NOT yet touch the parent `courses/<slug>/`
+ * directories (that happens once at the end of `runCleanup`).
+ * Returns `{ slug, deleted, skipped, reason? }`.
+ */
+export function cleanupCourse(root, courseSlug, { now = Date.now, write = () => {} } = {}) {
+  const receipt = loadReceipt(root, courseSlug);
+  if (!receipt) return { slug: courseSlug, deleted: 0, skipped: 0, reason: 'NO_RECEIPT' };
+  if (!receipt.verifiedAt) {
+    return { slug: courseSlug, deleted: 0, skipped: receipt.actions.length, reason: 'NOT_VERIFIED' };
+  }
+  const ageMs = now() - new Date(receipt.verifiedAt).getTime();
+  if (ageMs > VERIFY_FRESHNESS_MS) {
+    return { slug: courseSlug, deleted: 0, skipped: receipt.actions.length, reason: 'VERIFY_STALE', ageMs };
+  }
+  let deleted = 0;
+  for (const a of receipt.actions ?? []) {
+    if (!a.from) continue;
+    if (a.from === a.to) {
+      // Defensive: source and target identical would mean we'd delete our own
+      // migrated file. Should never happen because v2 paths are under the show
+      // folder, not under `courses/`, but check anyway.
+      write(`[${courseSlug}] ⚠ refusing to delete: from===to for ${a.to}`);
+      continue;
+    }
+    try {
+      unlinkSync(a.from);
+      deleted++;
+    } catch (e) {
+      if (e.code !== 'ENOENT') throw e;
+      // Already gone (re-run after partial cleanup) — count it as "already cleaned".
+      deleted++;
+    }
+  }
+  return { slug: courseSlug, deleted, skipped: 0 };
+}
+
+/**
+ * Run --cleanup across every receipt-bearing course. After per-course cleanup,
+ * if EVERY receipt was cleaned successfully AND the legacy `courses/` directory
+ * still exists, rename it to `courses.deleted-YYYY-MM-DD/` (NOT rm -rf). The
+ * user is expected to remove that manually after a final sanity check.
+ */
+export function runCleanup(root, { now = Date.now, write = (s) => console.log(s) } = {}) {
+  const slugs = listReceipts(root);
+  if (slugs.length === 0) {
+    write('No receipts found — has --copy been run?');
+    return { courses: 0, deleted: 0, renamedCoursesDir: null };
+  }
+  const results = [];
+  let allClean = true;
+  let totalDeleted = 0;
+  for (const slug of slugs) {
+    const r = cleanupCourse(root, slug, { now, write });
+    results.push(r);
+    if (r.deleted > 0) write(`[${slug}] cleaned ${r.deleted} file(s)`);
+    if (r.skipped > 0) {
+      write(`[${slug}] skipped (${r.reason})`);
+      allClean = false;
+    }
+    totalDeleted += r.deleted;
+  }
+  let renamedCoursesDir = null;
+  const legacyDir = join(root, 'courses');
+  if (allClean && existsSync(legacyDir)) {
+    // Use ISO date (not datetime) for the renamed dir to make it easy to spot.
+    const date = new Date(now()).toISOString().slice(0, 10);
+    const target = join(root, `courses.deleted-${date}`);
+    try {
+      renameSync(legacyDir, target);
+      renamedCoursesDir = target;
+      write(`Renamed ${legacyDir} → ${target}`);
+      write('Remove that directory manually once you have verified all migrated content.');
+    } catch (e) {
+      write(`⚠ Could not rename ${legacyDir}: ${e.message}`);
+    }
+  } else if (!allClean) {
+    write('Not renaming courses/ — some receipts were skipped (re-run --verify within 24h).');
+  }
+  write(`\n--cleanup: ${totalDeleted} file(s) deleted across ${slugs.length} course(s)`);
+  return { courses: slugs.length, deleted: totalDeleted, renamedCoursesDir };
+}
+
+function listReceipts(root) {
+  const dir = join(root, RECEIPTS_DIR);
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir)
+    .filter(f => f.endsWith('.json'))
+    .map(f => f.replace(/\.json$/, '').replace(/_/g, '/'));
+}
+
+/** Verify every course that has a receipt. Returns summary. */
+export function runVerify(root, { write = (s) => console.log(s) } = {}) {
+  const slugs = listReceipts(root);
+  if (slugs.length === 0) {
+    write('No receipts found — has --copy been run?');
+    return { verified: 0, failed: 0, results: [] };
+  }
+  const results = [];
+  let verified = 0, failed = 0;
+  for (const slug of slugs) {
+    const r = verifyCourse(root, slug, { write });
+    results.push(r);
+    if (r.ok) verified++; else failed++;
+  }
+  write(`\n--verify: ${verified} verified, ${failed} failed (of ${slugs.length} receipts)`);
+  return { verified, failed, results };
+}
+
+/**
  * Run --copy across every course in the index. Acquires the migration lock.
  * Writes the updated index.json (with new localPath fields) at the end of
  * each successful course. Refuses to run unless --i-have-re-fetched is set OR
@@ -468,12 +626,12 @@ async function main() {
     }
   }
   if (args.includes('--verify')) {
-    console.error('--verify is not yet implemented.');
-    process.exit(2);
+    const result = runVerify(root);
+    process.exit(result.failed > 0 ? 1 : 0);
   }
   if (args.includes('--cleanup')) {
-    console.error('--cleanup is not yet implemented.');
-    process.exit(2);
+    const result = runCleanup(root);
+    process.exit(result.renamedCoursesDir ? 0 : (result.deleted > 0 ? 0 : 1));
   }
   console.error('Usage: node lib/migrate.js (--plan | --copy | --verify | --cleanup)');
   process.exit(1);

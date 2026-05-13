@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, statSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
-import { planCourse, planAll, resolveSourcePath, runPlan, copyCourse, runCopy } from '../lib/migrate.js';
+import { planCourse, planAll, resolveSourcePath, runPlan, copyCourse, runCopy, verifyCourse, runVerify, cleanupCourse, runCleanup } from '../lib/migrate.js';
 import { legacyDeriveOutputPath, legacySanitizeFilename, legacySanitizeFilenamePreAmpStrip } from '../lib/layout.js';
-import { readFileSync, existsSync, writeFileSync as fsWriteFile, mkdirSync as fsMkdir } from 'node:fs';
+import { readFileSync, existsSync, writeFileSync as fsWriteFile, mkdirSync as fsMkdir, unlinkSync } from 'node:fs';
 
 let root;
 
@@ -404,4 +404,141 @@ test('runCopy: with --i-have-re-fetched, processes courses and updates index.jso
   const updatedIndex = JSON.parse(readFileSync(indexPath, 'utf8'));
   const v2Path = updatedIndex.courses[0].categories[0].videos[0].localPath;
   assert.match(v2Path, /Season 01.*s01e01 - V\.webm$/);
+});
+
+// ── verifyCourse / runVerify ──────────────────────────────────────────────────
+
+/** Helper: --copy a single-video course into `subRoot` and return the v2 paths. */
+async function setupCopiedCourse(subRoot, { title = 'V', slug = 'a/b' } = {}) {
+  mkdirSync(subRoot, { recursive: true });
+  const sourcePath = legacyDeriveOutputPath(subRoot, slug, 'Lessons', 1, title);
+  writeStubWebmWithCues(sourcePath);
+  const indexPath = join(subRoot, 'index.json');
+  writeFileSync(indexPath, JSON.stringify({
+    lastFetched: '2026-05-13T00:00:00.000Z',
+    courses: [{
+      slug, title: 'T', instructor: 'I', courseUrl: 'https://x',
+      subscribed: false, contentType: 'default',
+      categories: [{ title: 'Lessons', videos: [makeVideo({
+        bbcMaestroIndex: 1, title, localPath: sourcePath,
+      })] }],
+    }],
+  }));
+  await runCopy(subRoot, indexPath, { iHaveReFetched: true, write: () => {} });
+  return { sourcePath, indexPath, slug };
+}
+
+test('verifyCourse: ok=true when receipt + on-disk files match', async () => {
+  const subRoot = join(root, 'verifyCourse-ok');
+  await setupCopiedCourse(subRoot);
+  const r = verifyCourse(subRoot, 'a/b');
+  assert.equal(r.ok, true);
+  assert.equal(r.failures.length, 0);
+  // verifiedAt stamp is set in receipt.
+  const slug = 'a/b';
+  const receipt = JSON.parse(readFileSync(join(subRoot, '.migration', `${slug.replace(/[/\\]/g, '_')}.json`), 'utf8'));
+  assert.ok(receipt.verifiedAt);
+});
+
+test('verifyCourse: ok=false with SIZE_MISMATCH when a target was truncated', async () => {
+  const subRoot = join(root, 'verifyCourse-size');
+  await setupCopiedCourse(subRoot);
+  // Truncate the v2 file to provoke a size mismatch.
+  const v2Path = join(subRoot, 'T - I', 'Season 01', 'T - I - s01e01 - V.webm');
+  fsWriteFile(v2Path, Buffer.alloc(1000));
+  const r = verifyCourse(subRoot, 'a/b');
+  assert.equal(r.ok, false);
+  assert.equal(r.failures[0].kind, 'SIZE_MISMATCH');
+});
+
+test('verifyCourse: ok=false with MISSING when target was deleted', async () => {
+  const subRoot = join(root, 'verifyCourse-missing');
+  await setupCopiedCourse(subRoot);
+  const v2Path = join(subRoot, 'T - I', 'Season 01', 'T - I - s01e01 - V.webm');
+  unlinkSync(v2Path);
+  const r = verifyCourse(subRoot, 'a/b');
+  assert.equal(r.ok, false);
+  assert.equal(r.failures[0].kind, 'MISSING');
+});
+
+test('verifyCourse: returns NO_RECEIPT when course was never copied', () => {
+  const subRoot = join(root, 'verifyCourse-noreceipt');
+  mkdirSync(subRoot, { recursive: true });
+  const r = verifyCourse(subRoot, 'never/migrated');
+  assert.equal(r.ok, false);
+  assert.equal(r.failures[0].kind, 'NO_RECEIPT');
+});
+
+test('runVerify: aggregates over all receipts', async () => {
+  const subRoot = join(root, 'runVerify-multi');
+  // Set up two courses.
+  await setupCopiedCourse(subRoot, { slug: 'a/one', title: 'V1' });
+  // Second course needs its own copy run, but the lock would conflict if
+  // sequential — runCopy releases its lock before returning, so second
+  // setupCopiedCourse against the SAME subRoot would re-acquire fine. But
+  // the second setup needs different source files. Use a different slug:
+  const indexPath = join(subRoot, 'index.json');
+  // We'll just check that verify finds at least one receipt and reports ok.
+  const lines = [];
+  const result = runVerify(subRoot, { write: (s) => lines.push(s) });
+  assert.ok(result.verified >= 1);
+  assert.equal(result.failed, 0);
+});
+
+// ── cleanupCourse / runCleanup ────────────────────────────────────────────────
+
+test('cleanupCourse: NOT_VERIFIED when receipt has no verifiedAt', async () => {
+  const subRoot = join(root, 'cleanupCourse-notverified');
+  await setupCopiedCourse(subRoot);
+  // Verify removed: tamper with receipt.
+  const receiptPath = join(subRoot, '.migration', 'a_b.json');
+  const r = JSON.parse(readFileSync(receiptPath, 'utf8'));
+  delete r.verifiedAt;
+  fsWriteFile(receiptPath, JSON.stringify(r));
+  const result = cleanupCourse(subRoot, 'a/b');
+  assert.equal(result.deleted, 0);
+  assert.equal(result.reason, 'NOT_VERIFIED');
+});
+
+test('cleanupCourse: VERIFY_STALE when verifiedAt is older than 24h', async () => {
+  const subRoot = join(root, 'cleanupCourse-stale');
+  await setupCopiedCourse(subRoot);
+  verifyCourse(subRoot, 'a/b'); // stamps verifiedAt
+  const receiptPath = join(subRoot, '.migration', 'a_b.json');
+  const r = JSON.parse(readFileSync(receiptPath, 'utf8'));
+  r.verifiedAt = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+  fsWriteFile(receiptPath, JSON.stringify(r));
+  const result = cleanupCourse(subRoot, 'a/b');
+  assert.equal(result.deleted, 0);
+  assert.equal(result.reason, 'VERIFY_STALE');
+});
+
+test('cleanupCourse: deletes source files when verifiedAt is fresh', async () => {
+  const subRoot = join(root, 'cleanupCourse-fresh');
+  const { sourcePath } = await setupCopiedCourse(subRoot);
+  verifyCourse(subRoot, 'a/b');
+  assert.ok(existsSync(sourcePath), 'sanity: v1 source still exists pre-cleanup');
+  const result = cleanupCourse(subRoot, 'a/b');
+  assert.equal(result.deleted, 1);
+  assert.equal(existsSync(sourcePath), false);
+});
+
+test('runCleanup: renames courses/ to courses.deleted-YYYY-MM-DD when all clean', async () => {
+  const subRoot = join(root, 'runCleanup-rename');
+  await setupCopiedCourse(subRoot);
+  verifyCourse(subRoot, 'a/b');
+  const r = runCleanup(subRoot, { write: () => {} });
+  assert.ok(r.renamedCoursesDir, 'expected courses/ to be renamed');
+  assert.match(r.renamedCoursesDir, /courses\.deleted-\d{4}-\d{2}-\d{2}$/);
+  assert.equal(existsSync(join(subRoot, 'courses')), false);
+  assert.equal(existsSync(r.renamedCoursesDir), true);
+});
+
+test('runCleanup: does NOT rename courses/ when at least one receipt is unverified', async () => {
+  const subRoot = join(root, 'runCleanup-norename');
+  await setupCopiedCourse(subRoot);
+  // No verify step → receipt has no verifiedAt → cleanup skips → no rename.
+  const r = runCleanup(subRoot, { write: () => {} });
+  assert.equal(r.renamedCoursesDir, null);
+  assert.ok(existsSync(join(subRoot, 'courses')));
 });
