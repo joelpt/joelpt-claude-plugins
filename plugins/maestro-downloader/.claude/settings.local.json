@@ -1,1 +1,9 @@
-{}
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:support.plex.tv)",
+      "WebSearch",
+      "Bash(plutil -p ~/Library/Preferences/com.plexapp.plexmediaserver.plist)"
+    ]
+  }
+}
