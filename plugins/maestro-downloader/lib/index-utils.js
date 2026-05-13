@@ -290,16 +290,3 @@ export function isFileComplete(filePath) {
   return hasCompletionCues(filePath);
 }
 
-export function sanitizeFilename(name) {
-  return name
-    .replace(/:/g, '-')
-    .replace(/[?*"<>|/\\&]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-export function deriveOutputPath(root, slug, categoryTitle, videoIndex, videoTitle) {
-  const safeCategory = sanitizeFilename(categoryTitle);
-  const safeTitle = sanitizeFilename(videoTitle);
-  return join(root, 'courses', slug, 'videos', safeCategory, `${videoIndex}-${safeTitle}.webm`);
-}

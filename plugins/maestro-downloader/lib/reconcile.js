@@ -4,7 +4,8 @@ import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { config as dotenvConfig } from 'dotenv';
-import { atomicWriteJson, deriveOutputPath, isFileComplete } from './index-utils.js';
+import { atomicWriteJson, isFileComplete } from './index-utils.js';
+import { legacyDeriveOutputPath as deriveOutputPath } from './layout.js';
 import { info, warn } from './logger.js';
 
 const ENV_PATH = join(homedir(), '.claude', 'plugins', 'maestro-downloader', '.env');

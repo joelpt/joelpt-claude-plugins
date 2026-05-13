@@ -6,7 +6,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, existsSync } from 'node:fs';
 import { MIN_COMPLETE_FILE_BYTES } from '../lib/index-utils.js';
 
 import { reconcileCourse, sweepOrphanedTruncatedWebms } from '../lib/reconcile.js';
-import { deriveOutputPath } from '../lib/index-utils.js';
+import { legacyDeriveOutputPath as deriveOutputPath } from '../lib/layout.js';
 import { writeCuesToBuffer } from './helpers.js';
 
 function makeCourse(videos = []) {

@@ -5,7 +5,10 @@ import { join, dirname } from 'node:path';
 import { homedir, tmpdir, cpus } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { config as dotenvConfig } from 'dotenv';
-import { deriveManifestUrl, deriveOutputPath, atomicWriteJson, getEncoderSettings, buildFfmpegArgs, profileForContentType, isFileComplete, sleep, jitter } from './index-utils.js';
+import { deriveManifestUrl, atomicWriteJson, getEncoderSettings, buildFfmpegArgs, profileForContentType, isFileComplete, sleep, jitter } from './index-utils.js';
+import { enumerateSeasons, deriveOutputPath as v2DeriveOutputPath, showDirPath, seasonDirPath } from './layout.js';
+import { renderTvShowNfo, renderSeasonNfo, renderEpisodeNfo } from './nfo.js';
+import { downloadArtwork } from './artwork.js';
 import { info as _info, warn as _warn, debug, error } from './logger.js';
 
 const ENV_PATH = join(homedir(), '.claude', 'plugins', 'maestro-downloader', '.env');
@@ -320,27 +323,75 @@ export function parseLastFrame(stderrBuf) {
   return parseInt(matches[matches.length - 1].replace(/frame=\s*/, ''), 10);
 }
 
+// Walk a category tree's videos in place; calls `fn(videos, index)` for each
+// videos array and stops at the first one whose fn returns true.
+function findAndUpdateVideo(categories, predicate, updater) {
+  if (!Array.isArray(categories)) return false;
+  for (const cat of categories) {
+    if (Array.isArray(cat.videos)) {
+      const idx = cat.videos.findIndex(predicate);
+      if (idx !== -1) {
+        cat.videos[idx] = updater(cat.videos[idx]);
+        return true;
+      }
+    }
+    if (Array.isArray(cat.subcategories)) {
+      if (findAndUpdateVideo(cat.subcategories, predicate, updater)) return true;
+    }
+  }
+  return false;
+}
+
 export async function recordCompletion(indexPath, courseSlug, lessonUrl, outputPath, resolution = null) {
   const fresh = JSON.parse(readFileSync(indexPath, 'utf8'));
   const course = (fresh.courses ?? []).find(c => c.slug === courseSlug);
   if (!course) throw new Error(`Course not found in index: ${courseSlug}`);
-  let found = false;
-  for (const cat of course.categories) {
-    const vidIdx = cat.videos.findIndex(v => v.lessonUrl === lessonUrl);
-    if (vidIdx !== -1) {
-      cat.videos[vidIdx] = {
-        ...cat.videos[vidIdx],
-        completed: true,
-        downloadedAt: new Date().toISOString(),
-        localPath: outputPath,
-        ...(resolution !== null && { actualResolution: resolution }),
-      };
-      found = true;
-      break;
-    }
-  }
+  const found = findAndUpdateVideo(
+    course.categories,
+    (v) => v.lessonUrl === lessonUrl,
+    (v) => ({
+      ...v,
+      completed: true,
+      downloadedAt: new Date().toISOString(),
+      localPath: outputPath,
+      ...(resolution !== null && { actualResolution: resolution }),
+    }),
+  );
   if (!found) throw new Error(`Video not found in index: ${lessonUrl}`);
   await atomicWriteJson(indexPath, fresh);
+}
+
+/** Write `<episode-stem>.nfo` next to the .webm file. Idempotent. */
+export function writeEpisodeNfoSidecar(outputPath, course, season, episode) {
+  const nfoPath = outputPath.replace(/\.webm$/i, '.nfo');
+  const xml = renderEpisodeNfo(course, season, episode);
+  writeFileSync(nfoPath, xml, 'utf8');
+  return nfoPath;
+}
+
+/** Idempotently ensure show-level + season-level Plex/Jellyfin metadata sits
+ *  on disk for a course: writes `tvshow.nfo` at the show root; writes
+ *  `Season NN/season.nfo` for every season; downloads `poster.jpg` and
+ *  `fanart.jpg` if URLs are present on the course. Safe to call before every
+ *  download — re-writes are cheap and same-bytes.
+ */
+export async function ensureShowMetadata(root, course, seasons) {
+  const showDir = showDirPath(root, course);
+  mkdirSync(showDir, { recursive: true });
+  writeFileSync(join(showDir, 'tvshow.nfo'), renderTvShowNfo(course, seasons), 'utf8');
+  for (const s of seasons) {
+    const dir = seasonDirPath(root, course, s);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'season.nfo'), renderSeasonNfo(s), 'utf8');
+  }
+  if (course.posterUrl || course.fanartUrl) {
+    try {
+      await downloadArtwork(course, showDir);
+    } catch (e) {
+      // Artwork is non-blocking — log and continue.
+      _warn(`Artwork fetch failed for ${course.slug}: ${e.message}`);
+    }
+  }
 }
 
 
@@ -433,8 +484,11 @@ export async function runCourse(courseSlug, root, indexPath, { profile = null, a
   const effectiveProfile = profile ?? profileForContentType(course.contentType);
   const encoderSettings = getEncoderSettings(effectiveProfile, archive);
 
-  const allVideos = course.categories.flatMap(cat =>
-    cat.videos.map(v => ({ ...v, categoryTitle: cat.title })),
+  // v2 layout: walk seasons via layout.enumerateSeasons() so we also pick up
+  // any subcategories[].videos. Each row carries (seasonInfo, episodeInfo, video).
+  const seasons = enumerateSeasons(course);
+  const allVideos = seasons.flatMap(s =>
+    s.videos.map(e => ({ ...e.video, categoryTitle: s.title, _season: s, _episode: e })),
   );
   const pending = allVideos.filter(v => needsDownload(v));
   const redownloads = pending.filter(v => v.completed).length;
@@ -452,6 +506,10 @@ export async function runCourse(courseSlug, root, indexPath, { profile = null, a
     return { downloaded: 0, failed: 0 };
   }
 
+  // Idempotently write tvshow.nfo + season.nfo for every season + download
+  // poster/fanart. Cheap and safe to call once per runCourse invocation.
+  await ensureShowMetadata(root, course, seasons);
+
   let downloaded = 0;
   let failed = 0;
   const sessionStart = Date.now();
@@ -467,11 +525,11 @@ export async function runCourse(courseSlug, root, indexPath, { profile = null, a
     }
 
     const inputUrl = deriveManifestUrl(video.manifestUrl, encoderSettings.resolution);
-    const outputPath = deriveOutputPath(root, course.slug, video.categoryTitle, video.index, video.title);
+    const outputPath = v2DeriveOutputPath(root, course, video._season, video._episode, 'webm');
 
     const redownloadTag = video.completed ? '  [re-download: file missing or incomplete]' : '';
-    info(`\n[${fmtTimestamp()}] [${downloaded + failed + 1}/${pending.length}] ${video.index}. ${video.title}${redownloadTag}`);
-    info(`  Category: ${video.categoryTitle}`);
+    info(`\n[${fmtTimestamp()}] [${downloaded + failed + 1}/${pending.length}] s${String(video._season.seasonNumber).padStart(2,'0')}e${String(video._episode.episodeNumber).padStart(2,'0')} ${video.title}${redownloadTag}`);
+    info(`  Season:   ${video.categoryTitle}`);
     info(`  Output:   ${outputPath}`);
 
     mkdirSync(dirname(outputPath), { recursive: true });
@@ -497,6 +555,8 @@ export async function runCourse(courseSlug, root, indexPath, { profile = null, a
     if (result.success) {
       downloaded++;
       await recordCompletion(indexPath, course.slug, video.lessonUrl, outputPath, actualResolution);
+      // Write per-episode .nfo sidecar (idempotent — overwrite each time).
+      writeEpisodeNfoSidecar(outputPath, course, video._season, video._episode);
       const elapsed = fmtElapsed(Date.now() - videoStart);
       let sizeStr = '';
       try { sizeStr = ` — ${fmtSize(Math.round(statSync(outputPath).size / 1024))}`; } catch {}

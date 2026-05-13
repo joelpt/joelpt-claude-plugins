@@ -10,14 +10,13 @@ import {
   loadIndex,
   isStaleCache,
   derive1080pUrl,
-  deriveOutputPath,
-  sanitizeFilename,
   buildFfmpegArgs,
   getEncoderSettings,
   hasCompletionCues,
   isFileComplete,
   MIN_COMPLETE_FILE_BYTES,
 } from '../lib/index-utils.js';
+import { legacyDeriveOutputPath as deriveOutputPath, legacySanitizeFilename as sanitizeFilename } from '../lib/layout.js';
 import { IndexValidationError } from '../lib/schema.js';
 
 // ── mergeCourses ────────────────────────────────────────────────────────────
