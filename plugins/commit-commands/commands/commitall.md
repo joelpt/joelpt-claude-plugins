@@ -1,7 +1,7 @@
 ---
 name: commitall
 description: Commit ALL uncommitted changes as semantically atomic conventional commits with code review and simplify pre-flight. Ignore session-only restriction.
-model: haiku
+model: sonnet
 allowed-tools: Bash(git status:*), Bash(git diff:*), Bash(git log:*), Bash(git branch:*), Bash(git add:*), Bash(git commit:*), Bash(mktemp:*), Bash(rm:*)
 ---
 
@@ -14,12 +14,12 @@ allowed-tools: Bash(git status:*), Bash(git diff:*), Bash(git log:*), Bash(git b
 
 ## Model gate (MANDATORY before invoking any agent/skill)
 
-This orchestrator runs as haiku; sub-agents inherit haiku unless overridden.
-Most commits are a couple dozen LOC of config or cosmetic change — opus/sonnet is overkill and slow for those.
+This orchestrator runs as sonnet; sub-agents inherit sonnet unless overridden.
+Most commits are a couple dozen LOC of config or cosmetic change — opus is overkill and slow for those.
 
 Classify the cumulative diff:
 
-- **Default (no model override → haiku via inheritance)**: docs/config/data-only changes; cosmetic-only (whitespace, comments, identifier renames); value/constant tweaks; or ≤~100 LOC of code with low cyclomatic complexity (no new branches/loops, no new control flow).
+- **Default (no model override → sonnet via inheritance)**: docs/config/data-only changes; cosmetic-only (whitespace, comments, identifier renames); value/constant tweaks; or ≤~100 LOC of code with low cyclomatic complexity (no new branches/loops, no new control flow).
 - **Heavy (force opus)**: ANY of —
   - highly complex logic (state machines, concurrency, non-trivial algorithms),
   - ambiguous or sketchy intent in the diff (unclear why, mixed concerns, surprising changes),
@@ -27,12 +27,12 @@ Classify the cumulative diff:
   - cross-cutting refactor (signature/contract change with many callsites),
   - **security-risky** — touches auth/authz, crypto, secrets/credentials, input validation/sanitization, deserialization, file/path handling, subprocess/shell invocation, SQL/template construction, network exposure, permission boundaries, or anything that could plausibly become a CVE.
 
-Pick exactly one tier. If on the fence, default to haiku — the worst case is a re-run, not a bad commit.
+Pick exactly one tier. If on the fence, default to sonnet — the worst case is a re-run, not a bad commit.
 
 Below:
 
-- For `Agent(...)` calls: if Heavy, pass `model: "opus"`; otherwise omit `model` (inherits haiku from this orchestrator).
-- For `Skill(simplify)`: the skill's model knob isn't reliably exposed, so on Heavy diffs **skip the skill** and instead call `Agent(subagent_type: "code-simplifier:code-simplifier", model: "opus", prompt: "Simplify the changed files: <list>")` directly. On Default diffs, use `Skill(simplify)` as written — its sub-agents inherit haiku, which is what we want.
+- For `Agent(...)` calls: if Heavy, pass `model: "opus"`; otherwise omit `model` (inherits sonnet from this orchestrator).
+- For `Skill(simplify)`: the skill's model knob isn't reliably exposed, so on Heavy diffs **skip the skill** and instead call `Agent(subagent_type: "code-simplifier:code-simplifier", model: "opus", prompt: "Simplify the changed files: <list>")` directly. On Default diffs, use `Skill(simplify)` as written — its sub-agents inherit sonnet, which is what we want.
 
 ## Pre-flight (MANDATORY)
 
