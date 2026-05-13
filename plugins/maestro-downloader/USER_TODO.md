@@ -69,16 +69,15 @@ Format key: `[BLOCKING]` = no meaningful forward progress on related work; `[NON
 
 - [ ] [BLOCKING] **Phase 1.3 execution: run the schema v2 migration against live `~/xfer/maestro/index.json`**
 
-      Context: Phase 1.3 is a one-shot migration that renames every `index` → `bbcMaestroIndex`, adds `subscribed`/`contentType` fields, and writes `schemaVersion: 2`. The autonomous run will write the migration code (with a built-in backup + post-migration `count(completed)==556` assertion + auto-restore on failure) but won't EXECUTE it on your live file.
+      Context: One-shot migration that renames every `index` → `bbcMaestroIndex`, adds `subscribed`/`contentType` fields, and writes `schemaVersion: 2`. The script `lib/migrate-schema-v2.js` has shipped (with backup + Ajv validation + completion-count assertion). It refuses to run if validation fails or count regresses, and leaves the live file untouched on any error.
 
       What you'll need to do:
 
-      1. Review the autonomous run's `lib/migrate-schema-v2.js` (will land as part of Phase 1.3 commit).
-      2. Run `node lib/migrate-schema-v2.js --dry-run` first; review the diff it prints.
-      3. Run `node lib/migrate-schema-v2.js` for real. Backup is automatic; assertion auto-restores if it fails.
-      4. Verify by running `node -e "console.log(JSON.parse(require('fs').readFileSync(process.env.MAESTRO_ROOT + '/index.json')).schemaVersion)"` → should print `2`.
+      1. Dry-run first: `MAESTRO_ROOT=~/xfer/maestro node lib/migrate-schema-v2.js --dry-run`. Read its output — it should say "completion count preserved: 556" and "passes v2 schema validation". The backup path it would write is printed.
+      2. Real run: `MAESTRO_ROOT=~/xfer/maestro node lib/migrate-schema-v2.js`. Backup is automatic.
+      3. Verify: `node -e "console.log(JSON.parse(require('fs').readFileSync(process.env.MAESTRO_ROOT + '/index.json')).schemaVersion)"` should print `2`.
 
-      Why human: the migration is one-shot against the live file; a half-applied state would be hard to recover even with backups (e.g., if context window exhausted mid-write). The autonomous run holds the code and the safety nets; you press the button.
+      Why human: the migration writes to the live file. Even with safety nets, mid-context-window-exhaustion would be hard to recover; you press the button.
 
 - [ ] [BLOCKING] **Phase 3 `migrate.js --copy` and `--cleanup`: approve before running**
 
