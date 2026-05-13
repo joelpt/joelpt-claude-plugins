@@ -69,6 +69,36 @@ test('recordCompletion: marks video completed, sets localPath and downloadedAt',
   assert.ok(video.downloadedAt, 'downloadedAt should be set');
 });
 
+test('recordCompletion: refuses to write when a live migration lock is held', async () => {
+  const { acquireLock, releaseLock } = await import('../lib/migration-lock.js');
+  const dir = mkdtempSync(join(tmpdir(), 'maestro-dl-locked-'));
+  const indexPath = writeTmpIndex(dir, makeIndex());
+  acquireLock(dir, { pid: process.pid });
+  try {
+    await assert.rejects(
+      recordCompletion(indexPath, 'test/course', 'https://bbcmaestro.com/lessons/1', '/dl/lesson-1.webm'),
+      /Migration in progress/,
+    );
+    // Index untouched.
+    const after = JSON.parse(readFileSync(indexPath, 'utf8'));
+    assert.equal(after.courses[0].categories[0].videos[0].completed, false);
+  } finally {
+    releaseLock(dir);
+  }
+});
+
+test('recordCompletion: proceeds normally when only a stale lock exists', async () => {
+  const { __testing } = await import('../lib/migration-lock.js');
+  const dir = mkdtempSync(join(tmpdir(), 'maestro-dl-stale-'));
+  const indexPath = writeTmpIndex(dir, makeIndex());
+  mkdirSync(join(dir, '.migration'), { recursive: true });
+  writeFileSync(__testing.lockPath(dir), JSON.stringify({ pid: 99999999, startedAt: '2024-01-01T00:00:00.000Z' }));
+  // Stale lock (PID dead) must not block.
+  await recordCompletion(indexPath, 'test/course', 'https://bbcmaestro.com/lessons/1', '/dl/lesson-1.webm');
+  const after = JSON.parse(readFileSync(indexPath, 'utf8'));
+  assert.equal(after.courses[0].categories[0].videos[0].completed, true);
+});
+
 test('recordCompletion: does not clobber a concurrent completion written between calls', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'maestro-dl-test-'));
   const indexPath = writeTmpIndex(dir, makeIndex());

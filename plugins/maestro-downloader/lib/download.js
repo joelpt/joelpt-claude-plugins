@@ -9,6 +9,7 @@ import { deriveManifestUrl, atomicWriteJson, getEncoderSettings, buildFfmpegArgs
 import { enumerateSeasons, deriveOutputPath as v2DeriveOutputPath, showDirPath, seasonDirPath } from './layout.js';
 import { renderTvShowNfo, renderSeasonNfo, renderEpisodeNfo } from './nfo.js';
 import { downloadArtwork } from './artwork.js';
+import { blockedBecauseMigrating } from './migration-lock.js';
 import { info as _info, warn as _warn, debug, error } from './logger.js';
 
 const ENV_PATH = join(homedir(), '.claude', 'plugins', 'maestro-downloader', '.env');
@@ -343,6 +344,13 @@ function findAndUpdateVideo(categories, predicate, updater) {
 }
 
 export async function recordCompletion(indexPath, courseSlug, lessonUrl, outputPath, resolution = null) {
+  // Block writes when a migration is in progress (Phase 3.3 safety):
+  // recordCompletion writes index.json, which migrate.js is also rewriting
+  // per-course. Concurrent writes would lose updates. The lockfile lives at
+  // <root>/.migration/in-progress.lock; we infer root from the indexPath.
+  const root = dirname(indexPath);
+  const migrationBlocker = blockedBecauseMigrating(root);
+  if (migrationBlocker) throw new Error(migrationBlocker);
   const fresh = JSON.parse(readFileSync(indexPath, 'utf8'));
   const course = (fresh.courses ?? []).find(c => c.slug === courseSlug);
   if (!course) throw new Error(`Course not found in index: ${courseSlug}`);
