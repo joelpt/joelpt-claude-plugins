@@ -111,6 +111,7 @@ Autonomous /yolo run on branch `worktree-maestro-v2-yolo`. Human-input gates tra
 - [ ] Phase 0: Plex `<namedseason>` POC — partially BLOCKING in USER_TODO.md (autonomous run will generate the artifacts; manual Plex config + screenshot is on you).
 - [ ] Phase 1.4: live BBC Maestro DOM capture — moved to BLOCKING in USER_TODO.md after advisor flagged that autonomously crawling the live account is not safe. Autonomous run will write `lib/capture-fixtures.js`; you run it yourself.
 - [ ] Phase 1.3 execution: schema v2 migration of live `index.json` — moved to BLOCKING in USER_TODO.md. Autonomous run writes `lib/migrate-schema-v2.js` with backup + assertion safety nets; you run it.
+- [x] Phase 2.2: `lib/nfo.js` — `renderTvShowNfo` (with `<namedseason>` per season, course `<uniqueid type="bbcmaestro" default="true">slug</uniqueid>`, `<actor>` block with optional headshot, `<studio>BBC Maestro</studio>`), `renderSeasonNfo` (title + optional plot ONLY — explicit regression guard against emitting `<seasonnumber>` per Jellyfin #11656), `renderEpisodeNfo` (stable `<uniqueid type="bbcmaestro">slug/sNNeMM</uniqueid>`, `<aired>` from downloadedAt, `<season>`/`<episode>`). xmlbuilder2 ^4.0.3 (audit-clean). 17 unit tests covering well-formedness, escape, uniqueid stability, season-nfo regression guard. 264 tests pass.
 
 ---
 

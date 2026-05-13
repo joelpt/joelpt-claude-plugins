@@ -15,7 +15,8 @@
     "ajv-formats": "^3.0.1",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
-    "playwright": "^1.50.1"
+    "playwright": "^1.50.1",
+    "xmlbuilder2": "^4.0.3"
   },
   "devDependencies": {
     "@playwright/test": "^1.50.1"
