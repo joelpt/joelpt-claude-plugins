@@ -1,5 +1,105 @@
 # TODO: maestro-downloader Plugin
 
+## v2 — Plex-Compatible Library + Standalone TUI Tool (IN PROGRESS)
+
+**Plan file**: `/Users/joelthor/.claude/plans/i-want-to-change-robust-lampson.md`
+
+### Why this rewrite
+
+Current layout (`~/xfer/maestro/courses/<slug>/videos/<cat>/<idx>-<title>.webm`) works for the bespoke SPA but is opaque to Plex/Jellyfin.
+The user wants `~/xfer/maestro` to mount as a Plex **TV Shows** library where each course is a show and each leaf category is a season with a custom name (e.g. Eric Vetro's *Lessons*, *Vocal Exercises → Breathing Fundamentals*, *Vocal Exercises → Articulation* each as their own named season).
+
+Three additional concerns layer on:
+
+1. **Scraper is broken on multi-category courses**: Eric Vetro indexed as `Lessons (1)` + `Eric Vetro (30)` — the scraper mis-read the instructor name as a category heading and missed Vocal Exercises entirely. Owen O'Kane has 21 single-video "categories". 5 of 48 courses have >1 category recorded, some right, some wrong.
+1. **Backfill required**: 556 already-downloaded videos (≈39 GB, days of ffmpeg work) must reorganize WITHOUT re-encoding.
+1. **Convert to standalone tool with Ink TUI**: `just run` opens a TUI for managing subscriptions, content types, rescans, and downloads.
+
+### Architectural decision: TV-Shows-with-named-seasons (NFO Series agent), NOT TVDB matching
+
+Research confirmed BBC Maestro is in TVDB as series 419867 with 47 seasons (each course = one season).
+That would give free episode metadata via the standard TV Series agent, BUT it doesn't match the user's mental model ("each course as a show, each category as a season").
+Sticking with custom NFO Series agent + `<namedseason>` per the plan.
+Plex's TV Series Scanner is upstream and non-bypassable — `sXXeYY` filenames are mandatory even with the NFO agent.
+
+### Tournament-vetted plan refinements (12 load-bearing fixes from /think round)
+
+1. **Phase −1 preflight** (NEW): verify PMS ≥ **1.43.1.10512** (not just 1.43.1); lessonUrl-stability spot-check; fresh `index.json.pre-v2-migration` backup before any mutation. Cited evidence: forums.plex.tv/t/plex-nfo-agent-forum-preview/936104.
+1. **Phase 0**: POC must enable BOTH "Use local Assets" AND **"Use Season Titles"** library checkboxes — the second is load-bearing and was missing from initial plan. Source: forums.plex.tv/t/nfo-scanner-agent-should-respect-the-season-title-if-present/937977 (2026-04-14 dev confirmation).
+1. **Phase 1.2 mergeCourses fix**: rewrite to recurse into `subcategories[].videos`; explicit user-state vs scraper-state field-classification table; preserves new `subscribed` field. Existing code at `lib/index-utils.js:34-39` is the highest-impact data-loss bug.
+1. **Phase 1.3**: fresh backup as first step; required schema fields (`completed`/`downloadedAt`/`localPath`); post-migration `count(completed)==556` assertion.
+1. **Phase 1.4**: fixtures captured via `await page.content()` (post-render serialization), NOT raw HTTP response — must mirror what the in-browser `page.evaluate()` actually sees.
+1. **Phase 1.9** (NEW): automated post-fetch completion-count gate; aborts + restores on regression.
+1. **Phase 2.1 `legacyDeriveOutputPath`**: keep OLD sanitization (`:` → `-`, strip `&`) in layout.js for source-path reconstruction during migration. Do NOT delete the old function.
+1. **Phase 2.2**: `renderSeasonNfo` MUST NOT emit `<seasonnumber>` — Jellyfin issue #11656/#11709 documents that this causes rescan to overwrite the season title. `renderEpisodeNfo` MUST emit stable `<uniqueid type="bbcmaestro">slug/sNNeMM</uniqueid>` per PMS .10512 fix.
+1. **Phase 2.5** (NEW): mechanical refactor — move `dotenvConfig()` and `process.exit(1)` calls in lib/*.js OUT of module top level INTO `main()` / `runFromCli()`. Prerequisite for TUI imports.
+1. **Phase 3.2**: pre-flight per-course assertion (`completed && localPath && file exists`) aborts on regression; `.copying` staging name + atomic rename for fs.copyFile correctness.
+1. **Phase 3.3** (NEW): migration lockfile (`~/xfer/maestro/.migration/in-progress.lock`); `recordCompletion` refuses to write while migration in progress.
+1. **Phase 5 trimmed**: subprocess-only TUI architecture (no in-process download → no stdout/Ink conflict); single home screen; FOUR features only (list, toggle subscribed, change content type, trigger rescan, trigger download). Cut: drill-in episode view, in-TUI playback, modals.
+
+### Scope cuts applied
+
+1. Don't materialize `episodeNumber`/`seasonNumber`/`extras` on disk — derive in `layout.js`.
+1. SHA-256 only on 5% random sample during migration verify (size + `hasCompletionCues` cover the rest).
+1. `ink-multi-select` dropped — checkbox toggle is just text + space-key handler.
+
+### Scope kept (user-confirmed)
+
+1. Artwork (poster.jpg, fanart.jpg) scraped during fetch — user said yes.
+1. Two-phase re-fetch (5 known-buggy courses first, then all 48).
+1. Web SPA updated for new layout.
+1. Plex setup guide (one short checklist).
+1. Dual-life plugin + standalone tool.
+
+### User decisions captured
+
+- Show folder format: `<Course Title> - <Instructor>/` (e.g. `Sing Like the Stars - Eric Vetro/`).
+- Backfill mode: copy → verify CAREFULLY → delete originals (user emphasized "days of dl and encode results there").
+- Web SPA: keep, update for new layout.
+- Artwork: yes, scrape during fetch.
+- TUI framework: Ink (Node.js) — same library Claude Code itself uses; staying in Node because Playwright is a hard requirement.
+
+### Critical files to modify
+
+| File | Action | Phase |
+|---|---|---|
+| `schema/index.schema.json` | NEW (Ajv) | 1 |
+| `lib/schema.js` | NEW | 1 |
+| `lib/index-utils.js:13-67` | REWRITE `mergeCourses` (subcategory recursion) | 1 |
+| `lib/fetch-list.js:119-196` | REWRITE `scrapeCoursePage` (proper selectors, post-render fixtures) | 1 |
+| `lib/layout.js` | NEW (pure functions: enumerateSeasons, deriveOutputPath, legacyDeriveOutputPath) | 2 |
+| `lib/nfo.js` | NEW (xmlbuilder2 — tvshow.nfo/season.nfo/episode.nfo) | 2 |
+| `lib/artwork.js` | NEW | 2 |
+| `lib/download.js` | MODIFY (use layout.js; write episode.nfo on completion) | 2 |
+| `lib/fetch-list.js`, `lib/queue.js`, `lib/setup.js`, `lib/list.js` | REFACTOR (remove import-time side effects) | 2.5 |
+| `lib/migrate.js` | NEW (plan/copy/verify/cleanup with lockfile) | 3 |
+| `ui/index.html`, `lib/serve.js` | MODIFY for new layout | 4 |
+| `lib/tui/*.js` | NEW (Ink TUI, subprocess-only) | 5 |
+| `lib/queue.js` | REFACTOR `runQueue` export | 5 |
+| `Justfile` | `just run` → TUI | 5 |
+| `package.json` | ADD ajv, ajv-formats, xmlbuilder2, ink, ink-select-input, ink-progress-bar, ink-spinner, ink-text-input | 1,2,5 |
+| `docs/PLEX_SETUP.md` | NEW (short checklist) | 6 |
+| `README.md`, `CLAUDE.md`, `.claude-plugin/plugin.json` | UPDATE; bump to 0.2.0 | 6 |
+
+### Pre-implementation state snapshot (verified 2026-05-13)
+
+- 48 courses; 1,204 videos; 556 completed; **556/556 completed have valid `localPath` AND files exist on disk** ✓
+- `mergeCourses` at `lib/index-utils.js:43` already preserves `contentType` at course level; does NOT preserve `subscribed` (new field) NOR recurse into subcategories (existing bug)
+- Eric Vetro's course currently captured as just 2 categories: `Lessons (1)` (consent video) + `Eric Vetro (30)` — Vocal Exercises subcategories never scraped
+
+### Open questions (resolve during implementation, not blockers)
+
+1. PDF / "Class Guide" attachments — detect during Phase 1.6 fetch if present; defer if not trivial.
+1. Instructor headshot for `<actor><thumb>` — best-effort during fetch.
+1. WebVTT subtitles → `.eng.srt` sidecars — defer to v2 unless trivially available.
+1. Episode `.jpg` thumbnails via ffmpeg frame-extraction — defer to v2.
+
+### Goal state
+
+Entire series of changes completed, vetted, tested. `just run` opens the Ink TUI. Plex library at `~/xfer/maestro` shows 48 courses as TV shows with custom-named seasons. 556 already-downloaded videos preserved across migration. JSON Schema validates `index.json` on every read/write. Web SPA still works as a no-Plex fallback.
+
+---
+
 ## Phase 1: Plugin Infrastructure & POCs (Foundation) ✅ COMPLETE
 
 ### Setup
