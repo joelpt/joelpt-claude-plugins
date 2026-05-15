@@ -60,6 +60,11 @@
       "name": "jack",
       "source": "./plugins/jack/jack",
       "description": "Jack (Jacquard) — autonomous development orchestration plugin: pipeline, swarm, yolo modes; multi-agent reviewers; loom + flight recorder + blackboard. Sourced as a sparse-checkout submodule of joelpt/iloom-inside."
+    },
+    {
+      "name": "statusline-usage-updater",
+      "source": "./plugins/statusline-usage-updater",
+      "description": "Nightly auto-calibration of the statusline %w (weekly-quota burn) coefficient by comparing realised 7-day rate-limit utilisation against realised session token volume. Also drives a peak-hour warning glyph."
     }
   ]
 }
