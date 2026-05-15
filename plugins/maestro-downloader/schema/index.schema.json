@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://maestro-downloader/index.schema.json",
   "title": "MaestroIndex",
-  "description": "Schema v2 for ~/xfer/maestro/index.json — adds subscribed, contentType enum, posterUrl/fanartUrl/instructorHeadshotUrl, description, bbcMaestroIndex (renamed from index), and subcategories[] (mutually exclusive with videos at each category node).",
+  "description": "Schema v2 for ~/xfer/maestro/index.json — adds subscribed, contentType enum, posterUrl/fanartUrl/instructorHeadshotUrl, description, bbcMaestroIndex (renamed from index), and subcategories[] (mutually exclusive with videos at each category node). manifestUrl is nullable for un-scraped videos but must be a uri when completed=true.",
   "type": "object",
   "required": ["lastFetched", "schemaVersion", "courses"],
   "additionalProperties": false,
@@ -72,7 +72,12 @@
         "bbcMaestroIndex": { "type": "integer", "minimum": 1 },
         "title": { "type": "string", "minLength": 1 },
         "lessonUrl": { "type": "string", "format": "uri" },
-        "manifestUrl": { "type": "string", "format": "uri" },
+        "manifestUrl": {
+          "anyOf": [
+            { "type": "string", "format": "uri" },
+            { "type": "null" }
+          ]
+        },
         "completed": { "type": "boolean" },
         "downloadedAt": {
           "anyOf": [
@@ -91,6 +96,7 @@
       "if": { "properties": { "completed": { "const": true } }, "required": ["completed"] },
       "then": {
         "properties": {
+          "manifestUrl": { "type": "string", "format": "uri" },
           "downloadedAt": { "type": "string", "format": "date-time" },
           "localPath": { "type": "string", "minLength": 1 }
         }

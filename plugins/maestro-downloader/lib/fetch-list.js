@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { chromium } from 'playwright';
+import { JSDOM } from 'jsdom';
 import { config as dotenvConfig } from 'dotenv';
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -113,6 +114,53 @@ async function getCourseUrls(page) {
   }, BASE_URL);
 }
 
+/**
+ * Pure DOM-to-catalogue parser for a BBC Maestro course page.
+ *
+ * Empirically (see poc/04-phase-1.5-scraper-audit.md) the course page renders
+ * a single flat playlist of lessons — no headings, no groupings, no nested
+ * containers. So we always emit one `Lessons` category. The previous heuristic
+ * (walk h2/h3/h4 as category delimiters) was matching page-template noise like
+ * "Related Lessons" sidebar headings and fabricating phantom categories.
+ *
+ * Lesson links are matched against the explicit `/courses/<slug>/lessons/`
+ * prefix rather than a loose "contains the instructor slug" check, which
+ * incorrectly caught lessons from other courses by the same instructor when
+ * they appeared in the recommendation sidebar.
+ */
+export function parseCoursePageHtml(html, courseUrl) {
+  const { window } = new JSDOM(html, { url: courseUrl });
+  const document = window.document;
+
+  const title =
+    document.querySelector('h1')?.textContent?.trim() ??
+    document.title.split('|')[0].trim();
+
+  const slugParts = courseUrl.replace(/.*\/courses\//, '').split('/');
+  const instructorSlug = slugParts[0] ?? '';
+  const instructor = instructorSlug.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+  const slug = slugParts.slice(0, 2).join('/');
+
+  const lessonPathPrefix = `/courses/${slug}/lessons/`;
+  const seen = new Set();
+  const lessonLinks = [];
+  for (const a of document.querySelectorAll('a[href]')) {
+    const href = a.href.split('?')[0].split('#')[0];
+    if (!href.includes(lessonPathPrefix)) continue;
+    if (seen.has(href)) continue;
+    seen.add(href);
+    lessonLinks.push({ href, text: a.textContent.trim().replace(/\s+/g, ' ') });
+  }
+
+  return {
+    slug,
+    title,
+    instructor,
+    courseUrl,
+    categories: [{ title: 'Lessons', lessonLinks }],
+  };
+}
+
 async function scrapeCoursePage(page, courseUrl) {
   const resp = await page.goto(courseUrl, { waitUntil: 'networkidle', timeout: 60000 });
   if (resp?.status() === 429 || resp?.status() === 503) {
@@ -120,76 +168,8 @@ async function scrapeCoursePage(page, courseUrl) {
     warn(`⚠ 429 HIT | Global delay now: ${(globalAdaptiveDelayMs / 1000).toFixed(1)}s`);
     return 'RATE_LIMITED';
   }
-
-  return page.evaluate((courseUrl) => {
-    const title =
-      document.querySelector('h1')?.textContent?.trim() ??
-      document.title.split('|')[0].trim();
-
-    const slugParts = courseUrl.replace(/.*\/courses\//, '').split('/');
-    const instructorSlug = slugParts[0] ?? '';
-    const instructor = instructorSlug.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
-
-    const slug = slugParts.slice(0, 2).join('/');
-
-    const allLessonLinks = [...document.querySelectorAll('a[href]')]
-      .filter(a => a.href.includes('/lessons/') && a.href.includes(slugParts[0]))
-      .map(a => ({
-        href: a.href.split('?')[0].split('#')[0],
-        text: a.textContent.trim().replace(/\s+/g, ' '),
-      }))
-      .filter(a => a.href.length > 0);
-
-    const seen = new Set();
-    const uniqueLessons = [];
-    for (const l of allLessonLinks) {
-      if (!seen.has(l.href)) { seen.add(l.href); uniqueLessons.push(l); }
-    }
-
-    const categories = [];
-    const body = document.body;
-    const lessonHrefSet = new Set(uniqueLessons.map(l => l.href));
-    const categoryHeadings = new Set();
-    const NAV_HEADING = /explore|browse|all courses|see all/i;
-
-    for (const node of body.querySelectorAll('h2, h3, h4')) {
-      const text = node.textContent.trim();
-      if (text && text.length < 100 && !NAV_HEADING.test(text)) categoryHeadings.add(node);
-    }
-
-    if (categoryHeadings.size === 0 || uniqueLessons.length === 0) {
-      categories.push({ title: 'Lessons', lessonLinks: uniqueLessons });
-    } else {
-      const allNodes = [...body.querySelectorAll('*')];
-      let currentCatTitle = 'Lessons';
-      let currentLessons = [];
-      const assignedHrefs = new Set();
-
-      for (const node of allNodes) {
-        if (categoryHeadings.has(node)) {
-          if (currentLessons.length > 0) {
-            categories.push({ title: currentCatTitle, lessonLinks: currentLessons });
-            currentLessons = [];
-          }
-          currentCatTitle = node.textContent.trim();
-        } else if (node.tagName === 'A') {
-          const href = node.href?.split('?')[0].split('#')[0];
-          if (lessonHrefSet.has(href) && !assignedHrefs.has(href)) {
-            assignedHrefs.add(href);
-            currentLessons.push({ href, text: node.textContent.trim().replace(/\s+/g, ' ') });
-          }
-        }
-      }
-      if (currentLessons.length > 0) {
-        categories.push({ title: currentCatTitle, lessonLinks: currentLessons });
-      }
-      if (categories.length === 0) {
-        categories.push({ title: 'Lessons', lessonLinks: uniqueLessons });
-      }
-    }
-
-    return { slug, title, instructor, courseUrl, categories };
-  }, courseUrl);
+  const html = await page.content();
+  return parseCoursePageHtml(html, courseUrl);
 }
 
 async function getLessonManifest(page, lessonUrl) {

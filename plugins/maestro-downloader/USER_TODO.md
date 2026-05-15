@@ -6,16 +6,13 @@ Format key: `[BLOCKING]` = no meaningful forward progress on related work; `[NON
 
 ---
 
-- [ ] [BLOCKING] **Phase −1.1: Verify Plex Media Server build is ≥ 1.43.1.10512**
+- [x] [BLOCKING] **Phase −1.1: Verify Plex Media Server build is ≥ 1.43.1.10512** — ✅ RESOLVED 2026-05-15
+
+      RESOLUTION: User reported build `1.43.1.10611-1e34174b1`. Build counter `10611 ≥ 10512` → satisfied. The NFO Series agent `<namedseason>` + `season.nfo` `<title>`/`<plot>` reading and the "episodes without ids get no metadata" fix are both present on this build. Phase 0 POC may proceed against the live server.
 
       Context: This is the load-bearing PMS version that (a) made the NFO Series agent read `<namedseason>` + `season.nfo` `<title>`/`<plot>`, and (b) fixed the "episodes without ids get no metadata" bug.
       Build .10512 specifically — being on a 1.43.1.x build older than .10512 silently breaks the metadata behavior the whole v2 layout depends on.
       Source: forums.plex.tv/t/plex-nfo-agent-forum-preview/936104.
-
-      How to check: open Plex Web → Settings → General → "About" → confirm the build number.
-      If older: update PMS before any Phase 0 POC work runs against your live server.
-
-      Why human: requires looking at your Plex server's settings UI; autonomous run has no remote into Plex.
 
 - [ ] [BLOCKING] **Phase 0: Plex POC — verify `<namedseason>` actually surfaces custom season titles on your server**
 
@@ -42,16 +39,23 @@ Format key: `[BLOCKING]` = no meaningful forward progress on related work; `[NON
 
 - [ ] [BLOCKING] **Phase 1.7/1.8: Approve live `/fetch-list` re-crawl after scraper fix lands**
 
-      Context: The current scraper is broken on multi-category courses (Eric Vetro indexed as 2 categories instead of 4; Owen O'Kane as 21 single-video pseudo-categories). v2 fixes this and the autonomous run will write the fix + tests against captured HTML fixtures.
-      BUT running the live re-crawl against bbcmaestro.com is rate-limited, browses your live account, and touches your live `index.json` (39 GB / 556 completed downloads at risk if the merge logic regresses).
+      Context (revised 2026-05-14 after Phase 1.5 landed): The empirical finding from the captured fixtures was that BBC Maestro course pages **do not expose category structure** for downloadable lessons — every course page is a single flat playlist.
+      The old scraper's "multi-category" output for 5 courses was pure noise from h2/h3/h4 tags in unrelated page chrome (related-courses sidebar, instructor bio, customer reviews).
+      The Phase 1.5 fix replaces the heading-walk heuristic with "always emit one `Lessons` category"; running `/fetch-list` against any course will now yield a 1-cat tree.
+
+      The re-crawl is still rate-limited, browses your live account, and touches your live `index.json` (39 GB / 556 completed downloads).
+      The merge logic in `mergeCourses` keys video preservation by `lessonUrl`, so completion state survives the category-count change for the 5 affected courses.
 
       You explicitly said "verify CAREFULLY" — autonomous run will not trigger the live re-fetch.
 
-      What you'll need to do (after autonomous run signals Phases 1.5 + 1.9 are both implemented in `lib/fetch-list.js` — the new scraper *and* its post-fetch completion-count gate are part of the same file):
+      What you'll need to do:
 
-      1. Run `/fetch-list` against the 5 known-multi-category courses first (eric-vetro, alan-moore, mark-ronson, oliver-burkeman, owen-o-kane).
-      2. Eyeball the resulting `index.json` to confirm the category trees look right.
-      3. If OK: run `/fetch-list` for the rest of the 48 courses. Phase 1.9's automated post-fetch completion-count gate will abort + restore if `count(completed) != 556`.
+      1. Run `/fetch-list` against the 5 affected courses first (eric-vetro, mark-ronson, oliver-burkeman, owen-o-kane, alan-moore/storytelling).
+      2. Confirm each lands in `index.json` as a single `Lessons` category with the correct lesson count (31, 18, 22, 22, 33 respectively).
+      3. If OK: run `/fetch-list` for the rest. Phase 1.9's automated completion-count gate will abort + restore if `count(completed) != 556`.
+
+      Out of scope for this phase: `eric-vetro/singing` has a separate `<div id="practices">` tab containing 18 sub-grouped practice videos (URL pattern `/courses/<slug>/practices/<group>/<item>`).
+      The current scraper does not capture practices and the live index has 0 such entries — adding practices support is Phase 1.6 (a feature decision, not a fix).
 
       Why human: live network operation against your account with rate-limit risk + irreversible-merge risk on the 39 GB of existing data.
 

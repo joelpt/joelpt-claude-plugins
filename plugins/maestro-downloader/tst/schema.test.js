@@ -218,6 +218,26 @@ test('validateIndex rejects malformed manifestUrl', () => {
   })), IndexValidationError);
 });
 
+test('validateIndex accepts null manifestUrl on incomplete video (pre-scrape failure state)', () => {
+  // BBC Maestro page sometimes fails to expose the .m3u8 during scraping;
+  // fetch-list.js writes manifestUrl: null in that case. Allowed when completed=false.
+  const v = makeVideo({ manifestUrl: null, completed: false, downloadedAt: null, localPath: null });
+  assert.doesNotThrow(() => validateIndex(makeIndex({
+    courses: [makeCourse({ categories: [{ title: 'C', videos: [v] }] })],
+  })));
+});
+
+test('validateIndex rejects null manifestUrl on completed=true (impossible state)', () => {
+  // If a video is completed=true we must have had a manifestUrl to feed ffmpeg.
+  const v = makeVideo({
+    manifestUrl: null, completed: true,
+    downloadedAt: '2026-05-01T00:00:00.000Z', localPath: '/x/v.webm',
+  });
+  assert.throws(() => validateIndex(makeIndex({
+    courses: [makeCourse({ categories: [{ title: 'C', videos: [v] }] })],
+  })), IndexValidationError);
+});
+
 test('IndexValidationError exposes the raw ajv errors array', () => {
   try {
     validateIndex(makeIndex({ schemaVersion: 1 }));
