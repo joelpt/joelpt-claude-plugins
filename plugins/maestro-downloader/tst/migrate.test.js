@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, statSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
-import { planCourse, planAll, resolveSourcePath, runPlan, copyCourse, runCopy, verifyCourse, runVerify, cleanupCourse, runCleanup } from '../lib/migrate.js';
+import { planCourse, planAll, resolveSourcePath, runPlan, copyCourse, runCopy, verifyCourse, runVerify, cleanupCourse, runCleanup, evaluateRefetchGate, MIGRATION_REQUIRES_REFETCH_AFTER } from '../lib/migrate.js';
 import { legacyDeriveOutputPath, legacySanitizeFilename, legacySanitizeFilenamePreAmpStrip } from '../lib/layout.js';
 import { readFileSync, existsSync, writeFileSync as fsWriteFile, mkdirSync as fsMkdir, unlinkSync } from 'node:fs';
 
@@ -367,17 +367,91 @@ test('copyCourse: resolves PRE-amp-strip legacy candidate when only the &-preser
   assert.equal(result.copied, 1, 'pre-amp-strip candidate must be picked up');
 });
 
+// ── evaluateRefetchGate: pure re-fetch interlock decision ────────────────────
+
+test('evaluateRefetchGate: --i-have-re-fetched override always allows', () => {
+  // Override wins even against a null threshold and a stale lastFetched.
+  const r = evaluateRefetchGate({ iHaveReFetched: true, lastFetched: '2000-01-01T00:00:00Z', threshold: null });
+  assert.equal(r.ok, true);
+  assert.match(r.reason, /override/);
+});
+
+test('evaluateRefetchGate: null threshold refuses (Phase 1.5 not shipped)', () => {
+  const r = evaluateRefetchGate({ iHaveReFetched: false, lastFetched: '2030-01-01T00:00:00Z', threshold: null });
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /not yet shipped/i);
+});
+
+test('evaluateRefetchGate: missing/unparseable lastFetched refuses', () => {
+  const threshold = '2026-05-15T02:15:08-07:00';
+  for (const lf of [null, undefined, '', 'not-a-date']) {
+    const r = evaluateRefetchGate({ iHaveReFetched: false, lastFetched: lf, threshold });
+    assert.equal(r.ok, false, `lastFetched=${String(lf)} should refuse`);
+    assert.match(r.reason, /missing or unparseable/i);
+  }
+});
+
+test('evaluateRefetchGate: lastFetched older than threshold refuses', () => {
+  const r = evaluateRefetchGate({
+    iHaveReFetched: false,
+    lastFetched: '2026-05-13T00:00:00.000Z',
+    threshold: '2026-05-15T02:15:08-07:00',
+  });
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /predates the Phase 1\.5/i);
+});
+
+test('evaluateRefetchGate: lastFetched at/after threshold allows', () => {
+  const threshold = '2026-05-15T02:15:08-07:00';
+  // strictly after
+  assert.equal(evaluateRefetchGate({ lastFetched: '2026-06-01T00:00:00Z', threshold }).ok, true);
+  // exactly equal (boundary — re-fetched at the same instant counts as post-fix)
+  assert.equal(evaluateRefetchGate({ lastFetched: threshold, threshold }).ok, true);
+});
+
+test('MIGRATION_REQUIRES_REFETCH_AFTER is a parseable ISO timestamp (Phase 1.5 shipped)', () => {
+  // The constant must be set to the Phase 1.5 ship time, not left at the
+  // null placeholder — otherwise --copy can never run without the manual flag.
+  assert.notEqual(MIGRATION_REQUIRES_REFETCH_AFTER, null);
+  assert.equal(Number.isNaN(Date.parse(MIGRATION_REQUIRES_REFETCH_AFTER)), false);
+});
+
 // ── runCopy: end-to-end including lock + index.json roundtrip ────────────────
 
-test('runCopy: refuses without --i-have-re-fetched when MIGRATION_REQUIRES_REFETCH_AFTER is null', async () => {
+test('runCopy: refuses when index.lastFetched predates the Phase 1.5 threshold', async () => {
   const subRoot = join(root, 'runCopy-gated');
   mkdirSync(subRoot, { recursive: true });
   const indexPath = join(subRoot, 'index.json');
+  // 2026-05-13 is before the Phase 1.5 ship timestamp → broken-scraper data.
   writeFileSync(indexPath, JSON.stringify({ lastFetched: '2026-05-13T00:00:00.000Z', courses: [] }));
   await assert.rejects(
     runCopy(subRoot, indexPath, { iHaveReFetched: false }),
     /Refusing to run --copy/,
   );
+});
+
+test('runCopy: proceeds WITHOUT --i-have-re-fetched when lastFetched is post-Phase-1.5', async () => {
+  const subRoot = join(root, 'runCopy-fresh-noflag');
+  mkdirSync(subRoot, { recursive: true });
+  const sourcePath = legacyDeriveOutputPath(subRoot, 'a/b', 'Lessons', 1, 'V');
+  writeStubWebmWithCues(sourcePath);
+  const indexPath = join(subRoot, 'index.json');
+  writeFileSync(indexPath, JSON.stringify({
+    // Re-fetched well after the Phase 1.5 scraper rewrite → safe to migrate
+    // automatically, no manual override needed.
+    lastFetched: '2026-07-01T00:00:00.000Z',
+    courses: [{
+      slug: 'a/b', title: 'T', instructor: 'I', courseUrl: 'https://x',
+      subscribed: false, contentType: 'default',
+      categories: [{ title: 'Lessons', videos: [makeVideo({
+        bbcMaestroIndex: 1, title: 'V', localPath: sourcePath,
+      })] }],
+    }],
+  }));
+  const result = await runCopy(subRoot, indexPath, { iHaveReFetched: false, write: () => {} });
+  assert.equal(result.coursesProcessed, 1);
+  assert.equal(result.totalCopied, 1);
+  assert.equal(result.errors.length, 0);
 });
 
 test('runCopy: with --i-have-re-fetched, processes courses and updates index.json', async () => {

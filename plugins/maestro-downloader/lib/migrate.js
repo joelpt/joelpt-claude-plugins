@@ -188,14 +188,56 @@ export function runPlan(root, indexPath, { write } = {}) {
   return planResult;
 }
 
-/** USER_TODO sentinel: --copy refuses to run unless the index has been
- *  re-fetched with the v2 scraper. Until Phase 1.5 ships, --copy MUST be
- *  invoked with the explicit `--i-have-re-fetched` flag — the runtime gate
- *  prevents accidental migration against the broken-scraper categories.
- *  After Phase 1.5 ships, update this constant to the commit SHA of the
- *  scraper rewrite so the gate can auto-check `lastFetched` against it.
+/** Phase 1.5 re-fetch interlock threshold.
+ *
+ *  `--copy` reorganizes 556 irreplaceable downloads into the v2 layout. If the
+ *  index still carries the v1 broken-scraper categories (phantom h2/h3 noise),
+ *  files land in wrong season folders. The interlock requires the index to
+ *  have been re-fetched AT OR AFTER the Phase 1.5 scraper rewrite shipped.
+ *
+ *  This is the commit date of `da1c0e0` ("refactor: adopt Plex NFO style"),
+ *  the commit that landed the `scrapeCoursePage` rewrite + the 5 fixture
+ *  golden tests. A timestamp (NOT the SHA) so it is comparable to the index's
+ *  ISO-8601 `lastFetched`. `--i-have-re-fetched` remains an explicit operator
+ *  escape hatch (e.g. the index was re-fetched on another machine).
  */
-export const MIGRATION_REQUIRES_REFETCH_AFTER = null;
+export const MIGRATION_REQUIRES_REFETCH_AFTER = '2026-05-15T02:15:08-07:00';
+
+/** Pure decision for the `--copy` re-fetch interlock. Extracted for unit
+ *  testing — `runCopy` calls this with the live index's `lastFetched`.
+ *
+ *  Refuses unless one of:
+ *    - `iHaveReFetched` (explicit operator override), or
+ *    - `lastFetched` is a parseable timestamp >= `threshold`.
+ *  Refuses on a null threshold (Phase 1.5 not shipped) or a missing/garbage
+ *  `lastFetched` (cannot prove the index is post-fix → fail safe).
+ *
+ *  @returns {{ ok: boolean, reason: string }}
+ */
+export function evaluateRefetchGate({
+  iHaveReFetched = false,
+  lastFetched = null,
+  threshold = MIGRATION_REQUIRES_REFETCH_AFTER,
+} = {}) {
+  if (iHaveReFetched) {
+    return { ok: true, reason: 'explicit operator override (--i-have-re-fetched)' };
+  }
+  if (threshold === null) {
+    return { ok: false, reason: 'the v2 scraper rewrite (Phase 1.5) has not yet shipped (MIGRATION_REQUIRES_REFETCH_AFTER is null)' };
+  }
+  const thresholdMs = Date.parse(threshold);
+  const lastFetchedMs = lastFetched == null ? NaN : Date.parse(String(lastFetched));
+  if (Number.isNaN(lastFetchedMs)) {
+    return { ok: false, reason: `index.lastFetched is missing or unparseable (${String(lastFetched)}) — cannot prove the index is post-Phase-1.5` };
+  }
+  if (lastFetchedMs < thresholdMs) {
+    return {
+      ok: false,
+      reason: `index.lastFetched (${lastFetched}) predates the Phase 1.5 scraper rewrite (${threshold}) — the index still carries v1 broken-scraper categories; re-run /fetch-list first`,
+    };
+  }
+  return { ok: true, reason: `index re-fetched ${lastFetched} (>= Phase 1.5 ship ${threshold})` };
+}
 
 const RECEIPTS_DIR = '.migration';
 
@@ -556,12 +598,13 @@ export function runVerify(root, { write = (s) => console.log(s) } = {}) {
  * Returns `{ coursesProcessed, totalCopied, errors[] }`.
  */
 export async function runCopy(root, indexPath, { iHaveReFetched = false, write = (s) => console.log(s), force = false } = {}) {
-  if (!iHaveReFetched && MIGRATION_REQUIRES_REFETCH_AFTER === null) {
+  // Re-fetch interlock: read lastFetched (read-only, pre-lock) and gate on it.
+  const gate = evaluateRefetchGate({ iHaveReFetched, lastFetched: loadIndex(indexPath).lastFetched });
+  if (!gate.ok) {
     throw new Error(
-      'Refusing to run --copy: the v2 scraper rewrite (Phase 1.5) has not yet shipped, ' +
-      'and your index.json is presumed to come from the v1 (broken) scraper. ' +
-      'Either wait for Phase 1.5 + re-fetch, OR pass --i-have-re-fetched if you are SURE ' +
-      'the current index reflects re-scraped data.',
+      `Refusing to run --copy: ${gate.reason}. ` +
+      'Pass --i-have-re-fetched to override ONLY if you are SURE the current ' +
+      'index reflects post-Phase-1.5 re-scraped data.',
     );
   }
 
