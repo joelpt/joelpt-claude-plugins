@@ -2,7 +2,7 @@ This is a Claude Code plugin which provides a video downloader functionality for
 
 ## v2 in flight
 
-A v2 rewrite is in progress on branch `worktree-maestro-v2-yolo` that converts the on-disk layout to a Plex-/Jellyfin-compatible TV Shows library while preserving the bespoke SPA as a no-Plex fallback. New code already shipped on that branch:
+A v2 rewrite is in progress on `main` (the original yolo worktree was merged 2026-05-16) that converts the on-disk layout to a Plex-/Jellyfin-compatible TV Shows library while preserving the bespoke SPA as a no-Plex fallback. New code already shipped:
 
 - JSON Schema validator for `index.json` (Ajv 2020-12).
 - Pure layout functions in `lib/layout.js` (path & season derivation; idempotent legacy-path candidates for migration).
