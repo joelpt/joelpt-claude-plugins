@@ -19,11 +19,22 @@ This is the short checklist for adding `~/xfer/maestro` to your Plex Media Serve
 7. **Enable both checkboxes** (these are load-bearing):
    - **"Use local Assets"** — picks up `poster.jpg`, `fanart.jpg`, per-episode `.jpg` thumbnails.
    - **"Use Season Titles"** — without this, `<namedseason>` is silently ignored and Plex shows seasons as "Season 1", "Season 2", … instead of the custom titles. Source: <https://forums.plex.tv/t/nfo-scanner-agent-should-respect-the-season-title-if-present/937977> (April 2026 dev confirmation).
-8. **Save → Scan now.**
+8. **Save**, then on the library run **Refresh All Metadata** — NOT "Scan Library Files".
+
+## ⚠️ The agent gotcha (verified the hard way, 2026-05-16)
+
+A new TV library defaults to Plex's **non-NFO** TV agent. The Plex TV Series *Scanner* still finds your files and parses `sNNeMM`/Specials correctly from the filenames, so episodes appear and **everything looks like it half-works** — but the show title comes from the *folder name*, episodes show as "Episode 1/2/3", and seasons show as "Season 1/2/3". This reads like a `<namedseason>` failure when it is actually just the wrong agent.
+
+Two rules that make it work:
+
+1. Agent **must** be explicitly set to **Plex NFO Series** (step 5). If that agent is not in the dropdown on your Plex build, NFO TV metadata is unavailable and you are on the degraded path below.
+2. After changing the agent, you **must** run **Refresh All Metadata**. Changing the agent does *not* retroactively re-match already-scanned items, and a plain "Scan Library Files" will not fix them. (Removing and re-adding the library also works.)
+
+Phase 0 POC confirmed: with the agent set correctly and metadata refreshed, all `<namedseason>` titles — including the two-level `Vocal Exercises → Breathing Fundamentals` form — surface correctly on PMS 1.43.1.10611.
 
 ## Expected result
 
-- Each course appears as a TV show (e.g. *Sing Like the Stars – Eric Vetro*).
+- Each course appears as a TV show titled from `tvshow.nfo` `<title>` — the course title only (e.g. *Sing Like the Stars*), NOT the `<Course> - <Instructor>` folder name. The instructor appears via the `<actor>` credit, and the disk folder is still `Sing Like the Stars - Eric Vetro/` (Plex's scanner requirement); only the displayed title is NFO-driven. Confirmed in the Phase 0 POC.
 - Seasons display with their leaf-category names, NOT "Season 1/2/3" — e.g. *Lessons*, *Vocal Exercises → Breathing Fundamentals*, *Vocal Exercises → Articulation*.
 - Each episode's title and plot come from its `.nfo` sidecar.
 - Course intro / consent / trailer videos appear under the **Specials** season (season 00).

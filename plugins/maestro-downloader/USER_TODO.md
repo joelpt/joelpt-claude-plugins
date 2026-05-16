@@ -14,29 +14,11 @@ Format key: `[BLOCKING]` = no meaningful forward progress on related work; `[NON
       Build .10512 specifically — being on a 1.43.1.x build older than .10512 silently breaks the metadata behavior the whole v2 layout depends on.
       Source: forums.plex.tv/t/plex-nfo-agent-forum-preview/936104.
 
-- [ ] [BLOCKING] **Phase 0: Plex POC — verify `<namedseason>` actually surfaces custom season titles on your server**
+- [x] [BLOCKING] **Phase 0: Plex POC — verify `<namedseason>` surfaces custom season titles** — ✅ GO, RESOLVED 2026-05-16
 
-      Context: Phase 0 is a load-bearing POC that confirms Plex's behavior matches the docs *before* any production NFO writing.
-      ✅ Autonomous run HAS produced the artifacts (commit on `worktree-yolo-maestro`): `poc/04-plex-nfo/generate.mjs` materialises a synthetic `Sing Like the Stars - Eric Vetro` show with FOUR `<namedseason>` tags (Specials s00 + Lessons + two hierarchical "Vocal Exercises → …" seasons) + per-episode `<uniqueid>` + `poster.jpg`/`fanart.jpg`. It uses the **production** renderers, so a Plex GO verifies the real `--copy` output by construction. `poc/04-plex-nfo/findings.md` has the full step-by-step + GO/NO-GO checklist; `expected-nfo-snapshot.md` has the committed rendered XML. The Plex library config + scan + visual verification is the part only you can do.
+      RESOLUTION: Verified live on the user's PMS (build 1.43.1.10611). Every `<namedseason>` title surfaced — Specials, Lessons, and the two hierarchical `Vocal Exercises → Breathing Fundamentals` / `→ Articulation` subcategory titles — plus show title, episode titles, Specials routing, and `poster.jpg`, all from local NFO/assets. No degraded path needed. Full record + the agent-default config gotcha in `poc/04-plex-nfo/findings.md`; gotcha baked into `docs/PLEX_SETUP.md`.
 
-      What you'll need to do (see `poc/04-plex-nfo/findings.md` for the detailed version):
-
-      0. Run `node poc/04-plex-nfo/generate.mjs` (the `library/` tree is git-ignored, so regenerate it locally first).
-      1. Add the printed absolute path (`poc/04-plex-nfo/library`) as a new TV library in Plex.
-      2. Set agent = **Plex NFO Series**, scanner = Plex TV Series Scanner.
-      3. Enable BOTH checkboxes in Library → Advanced:
-         - **"Use local Assets"** (topmost in agent order)
-         - **"Use Season Titles"** ← *load-bearing; without this, `<namedseason>` is silently ignored*
-         Source: forums.plex.tv/t/nfo-scanner-agent-should-respect-the-season-title-if-present/937977 (April 14, 2026 dev confirmation).
-      4. Scan the library and check three things:
-         - Each season shows its `<namedseason>` text (e.g. "Lessons", "Vocal Exercises → Breathing Fundamentals"), NOT "Season 1/2/3".
-         - The Specials season displays + its s00e01 episode metadata reads from the NFO.
-         - `poster.jpg` / `fanart.jpg` are picked up.
-      5. Screenshot the result; drop it in `poc/04-plex-nfo/findings.md` (autonomous run will create the file skeleton).
-
-      GO/NO-GO: if `<namedseason>` doesn't surface despite both checkboxes enabled, the honest degraded path is that seasons appear as "Season 1"/"Season 2" in Plex, and Jellyfin/Kodi still surface correct names via `season.nfo`. Plan documents the divergence and proceeds.
-
-      Why human: requires hands-on Plex library config + visual screenshot verification. No way to script this end-to-end remotely.
+      KEY GOTCHA for the real Phase 3 migration: a new Plex TV library defaults to the non-NFO agent. The scanner still parses filenames so it *looks* half-working, but metadata comes from folder names. You MUST set Agent = **Plex NFO Series** AND run **Refresh All Metadata** (not "Scan Library Files") after changing it. Documented in `docs/PLEX_SETUP.md`.
 
 - [ ] [BLOCKING] **Phase 1.7/1.8: Approve live `/fetch-list` re-crawl after scraper fix lands**
 
