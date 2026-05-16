@@ -2,7 +2,6 @@
 name: commitall
 description: Commit ALL uncommitted changes as semantically atomic conventional commits with code review and simplify pre-flight. Ignore session-only restriction.
 allowed-tools: Bash(git status:*), Bash(git diff:*), Bash(git log:*), Bash(git branch:*), Bash(git add:*), Bash(git commit:*), Bash(mktemp:*), Bash(rm:*)
-effort: low
 ---
 
 ## Context

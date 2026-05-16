@@ -1,69 +1,60 @@
 ---
 name: commit
 description: Atomic git commit of current session changes with mandatory code review and simplify pre-flight.
-model: sonnet
 allowed-tools: Bash(git status:*), Bash(git diff:*), Bash(git log:*), Bash(git branch:*), Bash(git add:*), Bash(git commit:*)
 ---
 
 ## Context
 
 - Git status: !`git status`
-- Unstaged changes: !`git diff`
-- Staged changes: !`git diff --staged`
-- Recent commits (for message style): !`git log --oneline -10`
+- Change summary: !`git diff --stat`
+- Staged summary: !`git diff --staged --stat`
+- Recent commits: !`git log --oneline -10`
+- Full diff: !`git diff`
 
-## Phase 0: Model gate (MANDATORY before invoking any agent/skill)
+## Steps
 
-This orchestrator runs as sonnet; sub-agents inherit sonnet unless overridden.
-Most commits are a couple dozen LOC of config or cosmetic change — opus is overkill and slow for those.
+DEFINITIONS:
+   "call code review": run `/code-review:code-review`. Show full findings using colorized output and emojis; auto-fix Critical/Important.
+   "call Codex": run `/codex:review`. Show full findings using colorized output and emojis; auto-fix P0/P1 and for ambiguous/major changes, before auto-fixing, use AskUserQuestion to explain each change, the pro/con, and ask the user if/how to proceed.
+   "simplify:" run `Skill(simplify)` on all changed files.
 
-Classify the diff:
+SCOPE: only files changed in the current session. Ignore unrelated pre-existing changes — do not stage or commit them.
 
-- **Default (no model override → sonnet via inheritance)**: docs/config/data-only changes (`.md`, `.json`, `.yaml`, `.toml`, lock files, etc.); cosmetic-only (whitespace, comments, identifier renames); value/constant tweaks; or ≤~100 LOC of code with low cyclomatic complexity (no new branches/loops, no new control flow).
-- **Heavy (force opus)**: ANY of —
-  - highly complex logic (state machines, concurrency, non-trivial algorithms),
-  - ambiguous or sketchy intent in the diff (unclear why, mixed concerns, surprising changes),
-  - voluminous (>300 net LOC of substantive code, or >10 source files touched),
-  - cross-cutting refactor (signature/contract change with many callsites),
-  - **security-risky** — touches auth/authz, crypto, secrets/credentials, input validation/sanitization, deserialization, file/path handling, subprocess/shell invocation, SQL/template construction, network exposure, permission boundaries, or anything that could plausibly become a CVE.
+STEPS:
 
-Pick exactly one tier. If on the fence, default to sonnet — the worst case is a re-run, not a bad commit.
+1. Check the nature of the changes and:
+   - If trivial or documentation/config/data files only: skip calling code-review, Codex, and simplify
+   - If non-trivial but not highly complex and <= 10 code files changed: call code-review and simplify
+   - If non-trivial and highly complex and/or >10 code files changed: call code-review and Codex in parallel, evaluate the combined set of recommendations, and follow the auto-fix/HITL pattern described above. Then simplify.
+2. If any files were changed in previous step, re-call code review (first re-running `git diff` for a fresh picture), auto-fix, and simplify again.
+3. After step 2 and if further changes were made during that step, **STOP**, explain to user; do not commit. If reviewer found **any** issues (Critical, Important, minor, or suggestions): `AskUserQuestion` "Found N issues and M suggestions. Fix any before committing, or proceed?"
+4. Perform commit loop, below.
 
-## Phase 1: Code Review (MANDATORY)
 
-Invoke `Agent` with `subagent_type: "superpowers:code-reviewer"` to review the changes above.
-If Heavy per Phase 0, pass `model: "opus"`; otherwise omit `model` (inherits sonnet from this orchestrator).
+## Commit Loop
 
-Present ALL findings to the user. Auto-fix Critical/Important issues before proceeding.
+Repeat until all current-session files are committed (unrelated changes stay untouched):
 
-For Minor/Suggestions: use `AskUserQuestion` — "Found N minor issues and M suggestions. Fix any before committing, or proceed?"
+1. `git add <specific files>`
+2. `git diff --staged` — verify
+3. `git commit -m "<<Conventional Commits format message>>"`
+4. `git log -1` — confirm
 
-## Phase 1b: Simplify
 
-- **Default (not Heavy)**: `Skill(simplify)` on changed files. Sub-agents the skill spawns inherit sonnet from this orchestrator — that's the intended cheap path.
-- **Heavy per Phase 0**: skip the skill (its model knob isn't reliably exposed) and call the simplifier agent directly with the override:
-  `Agent(subagent_type: "code-simplifier:code-simplifier", model: "opus", prompt: "Simplify the changed files: <list>")`.
+## Git Rules (IMMUTABLE)
 
-If it produces changes: re-run `superpowers:code-reviewer` (same Heavy decision as Phase 1 — `model: "opus"` if Heavy, else omit). At most 2 passes total. If still changing after pass 2 — stop and explain; do not commit.
+**BANNED:** `git add .`/`-A`/`--all` · `commit -a` · `--no-verify` · AI attribution · emojis · Co-Authored-By · links in messages.
 
-## Phase 2: Commit
+**REQUIRED:** stage by name · `git diff --staged` before every commit · only current session files — ignore unrelated changes · message = WHY not WHAT.
 
-**IMMUTABLE RULES:**
+**Atomic grouping:** one logical change per commit.
+Group if split would break the build (new required param + callsite → same commit).
+Split independent changes. Use `git add -p` for partial-file commits.
 
-- Stage files individually by name — NEVER `git add .`, `-A`, `--all`, or `commit -a`
-- NEVER `--no-verify`
-- No AI attribution — no Co-Authored-By, no emojis, no links in message
-- Only current session files — ignore unrelated changes
-- Message: focus on WHY, not WHAT
 
-**Workflow:**
+## Conventional Commits format message
 
-1. `git status` — confirm current state after review/simplify
-2. `git add <file1> <file2> ...` — stage by name
-3. `git diff --staged` — verify staged content
-4. `git commit -m "type: Subject"` — conventional commit format
-5. `git log -1` — confirm
-
-**Message format:** `<type>: <Subject>` — imperative mood, no period, max 50 chars, capitalize first letter.
-
-Types: `feat` / `fix` / `refactor` / `test` / `chore` / `docs` / `perf` / `style`
+**Format:** `<type>(area): <Subject ≤50 chars, imperative mood, capitalized, no period>` -> strictly adhere to Conventional Commits format
+Types: `feat` · `fix` · `docs` · `style` · `refactor` · `perf` · `test` · `chore`
+Optional body rules: wrap at 72 chars. Only when needed, write a concise body explaining rationale for this change and/or specifics of the change that would be valuable to a new developer perusing the commit log in the future. Follow best practices for Git commit message bodies.
