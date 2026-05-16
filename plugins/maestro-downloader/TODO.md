@@ -4,6 +4,45 @@
 
 **Plan file**: `/Users/joelthor/.claude/plans/i-want-to-change-robust-lampson.md`
 
+### ▶ RESUME POINT — picking this up from `main`
+
+> Yolo worktree (`worktree-yolo-maestro`) was merged to `main` on **2026-05-16** and
+> deleted. All further work continues directly on `main`; there is no longer a
+> separate v2 branch. The "Progress log" branch reference below is historical.
+
+**First, before anything else:** `node_modules` is not committed. On a fresh
+checkout you MUST run `npm install` in `plugins/maestro-downloader/` (v2 added
+`ajv`, `ajv-formats`, `jsdom`, `ink*`, `xmlbuilder2`). Without it `just test`
+fails with `ERR_MODULE_NOT_FOUND` — that is a missing-deps symptom, NOT a code
+regression. With deps installed: **380 pass / 1 skipped / 0 fail**.
+
+**What is DONE (code landed + tested on `main`):** Phases −1.1/−1.4, 0 (Plex POC
+= GO, verified live), 1.1, 1.2, 1.4, 1.5, 2.1–2.5, 4, 5, 6 (partial). The full
+v2 code path exists and is unit-tested; nothing has touched the live
+`~/xfer/maestro` data yet.
+
+**What is WIP:** Phase 3 `lib/migrate.js` — all subcommands written and tested
+(`--plan`/`--copy`/`--verify`/`--cleanup` + migration lockfile). Live `--plan`
+ran clean: **556 COPY actions, 0 problems, 40.92 GB** (saved at
+`poc/06-migrate-plan/initial-plan.txt`). Code-complete; awaiting the human go/no-go
+to actually move bytes.
+
+**Immediate next actions — ALL human-gated, see `USER_TODO.md` for the exact
+button sequence:**
+
+1. **Phase 1.7/1.8** — approve + run the live `/fetch-list` re-crawl (5 affected
+   courses first, then all 48). Live account, rate-limited, mutates the 39 GB index.
+2. **Phase 1.3** — run the schema-v2 migration on live `~/xfer/maestro/index.json`
+   (`lib/migrate-schema-v2.js`; dry-run first).
+3. **Phase 3** — `migrate.js --copy` → `--verify` → visual Plex check on 5 sample
+   courses → `--cleanup`. Irreversible 39 GB / 556-video reorg.
+
+**Non-blocking / deferred** (no code stubbed): Phase 4 error-message scoping
+(preference call — `USER_TODO.md`), Linux test (env-gated), Opus review of
+`migrate.js` (do it right before the first real `--copy`), and the
+`plugin.json` → `0.2.0` + `CLAUDE.md` v2 rewrite at the v2 cutover (the patch
+bump in this cleanup commit is unrelated marketplace housekeeping).
+
 ### Why this rewrite
 
 Current layout (`~/xfer/maestro/courses/<slug>/videos/<cat>/<idx>-<title>.webm`) works for the bespoke SPA but is opaque to Plex/Jellyfin.
@@ -100,7 +139,9 @@ Entire series of changes completed, vetted, tested. `just run` opens the Ink TUI
 
 ### Progress log
 
-Autonomous /yolo run on branch `worktree-maestro-v2-yolo`. Human-input gates tracked in `USER_TODO.md`.
+Autonomous /yolo run, originally on a `worktree-yolo-maestro` worktree; merged
+to `main` 2026-05-16 (see ▶ RESUME POINT above — continue on `main`). Human-input
+gates tracked in `USER_TODO.md`.
 
 - [x] Phase −1.4: fresh `index.json.pre-v2-migration.<ISO8601>` backup verified byte-identical to live `index.json` (2026-05-13).
 - [x] Phase 1.1: `schema/index.schema.json` + `lib/schema.js` (Ajv 2020-12). 23 unit tests cover valid/invalid round-trips, contentType enum, slug pattern, video field requireds, oneOf mutex for `videos` XOR `subcategories`, subcategory recursion, `completed:true ⇒ localPath/downloadedAt non-null` invariant.
