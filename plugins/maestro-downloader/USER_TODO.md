@@ -59,18 +59,11 @@ Format key: `[BLOCKING]` = no meaningful forward progress on related work; `[NON
 
       Why human: live network operation against your account with rate-limit risk + irreversible-merge risk on the 39 GB of existing data.
 
-- [ ] [BLOCKING] **Phase 1.4: capture DOM fixtures from live BBC Maestro yourself**
+- [x] [BLOCKING] **Phase 1.4: capture DOM fixtures from live BBC Maestro yourself** — ✅ RESOLVED 2026-05-15
 
-      Context: Phase 1.5 (the scraper rewrite) needs HTML fixtures captured via `page.content()` after the BBC Maestro page renders. Crawling your live account (login + reCAPTCHA + session cookies + rate-limit risk) is something you trigger when ready, not the autonomous run.
+      RESOLUTION: Five post-render fixtures were captured and committed in `da1c0e0` (`tst/fixtures/{agatha-christie_writing, eric-vetro_singing, mark-ronson_music-production, oliver-burkeman_time-management, owen-o-kane_a-life-less-anxious}.post-render.html` + `tst/fixtures/README.md`). Phase 1.5's scraper rewrite shipped against them with 5 fixture-driven golden tests. Nothing further needed here.
 
-      The helper script `lib/capture-fixtures.js` has shipped. To use it:
-
-      1. Run `MAESTRO_EMAIL=... MAESTRO_PASSWORD=... node lib/capture-fixtures.js` (or rely on `.env` if /setup wrote those values). With no args it captures the 6 default courses (eric-vetro/singing, agatha-christie/writing, owen-o-kane/a-life-less-anxious, mark-ronson/music-production, alan-moore/writing-fiction, oliver-burkeman/time-management).
-      2. Captures land at `tst/fixtures/<slug>.post-render.html` plus a `tst/fixtures/README.md`.
-      3. Commit those: `git add tst/fixtures/ && /commit-commands:commit`.
-      4. Resume the autonomous run; Phase 1.5 will TDD scrapeCoursePage against the captured HTML.
-
-      Why human: live login + crawl against your account.
+      Context: Phase 1.5 (the scraper rewrite) needed HTML fixtures captured via `page.content()` after the BBC Maestro page renders. The helper script `lib/capture-fixtures.js` remains available for future re-captures if BBC Maestro changes their DOM.
 
 - [ ] [BLOCKING] **Phase 1.3 execution: run the schema v2 migration against live `~/xfer/maestro/index.json`**
 
