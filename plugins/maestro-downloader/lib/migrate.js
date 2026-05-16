@@ -253,11 +253,38 @@ function loadReceipt(root, courseSlug) {
   try { return JSON.parse(readFileSync(p, 'utf8')); } catch { return null; }
 }
 
+/**
+ * Crash-safe file write: stage to `<path>.tmp`, fsync, then atomic rename.
+ * A torn write leaves only the `.tmp` (ignored by every reader) — the final
+ * path is only ever a fully-written file. Used for receipts (idempotency +
+ * cleanup-gate truth) and NFO sidecars (Plex caches partial XML otherwise).
+ */
+function atomicWriteFileSync(path, content) {
+  mkdirSync(dirname(path), { recursive: true });
+  const tmp = `${path}.tmp`;
+  writeFileSync(tmp, content, 'utf8');
+  const fd = openSync(tmp, 'r+');
+  try { fsyncSync(fd); } finally { closeSync(fd); }
+  renameSync(tmp, path);
+}
+
 function writeReceipt(root, courseSlug, receipt) {
   const p = receiptPath(root, courseSlug);
-  mkdirSync(dirname(p), { recursive: true });
-  writeFileSync(p, JSON.stringify(receipt, null, 2), 'utf8');
+  atomicWriteFileSync(p, JSON.stringify(receipt, null, 2));
   return p;
+}
+
+/** Re-apply each receipt action's `to` as the video's localPath in the
+ *  in-memory index. Idempotent. Used on the crash-recovery path: if --copy
+ *  was SIGKILLed after the receipt was written but before index.json was
+ *  persisted, the re-run skips the (already-done) copy but MUST still publish
+ *  the new localPath, or --cleanup would later delete the only copy while
+ *  index.json still points at the deleted v1 source.
+ */
+function reapplyLocalPathsFromReceipt(course, receipt) {
+  for (const a of receipt?.actions ?? []) {
+    if (a.lessonUrl) updateLocalPath(course, a.lessonUrl, a.to);
+  }
 }
 
 function sha256OfFile(path) {
@@ -355,7 +382,7 @@ function updateLocalPath(course, lessonUrl, newPath, downloadedAt) {
  * Pre-flight: every video where `completed === true` must have a resolvable
  * source path. If any video fails this check, throws BEFORE any copy starts.
  */
-export function copyCourse(root, index, courseSlug, { write = () => {}, force = false } = {}) {
+export function copyCourse(root, index, courseSlug, { write = () => {}, force = false, sampleFraction = 0.05 } = {}) {
   const course = (index.courses ?? []).find(c => c.slug === courseSlug);
   if (!course) throw new Error(`Course not found in index: ${courseSlug}`);
 
@@ -363,6 +390,12 @@ export function copyCourse(root, index, courseSlug, { write = () => {}, force = 
   const prior = loadReceipt(root, courseSlug);
   if (prior && !force) {
     write(`[${courseSlug}] already migrated (receipt at ${receiptPath(root, courseSlug)}); use force:true to re-run`);
+    // Crash recovery: a prior run may have written the receipt but been
+    // killed before index.json was persisted. Re-publish localPath from the
+    // receipt so the (resumable) caller's atomicWriteJson records it —
+    // otherwise --cleanup deletes the v1 source while index.json still
+    // points there.
+    reapplyLocalPathsFromReceipt(course, prior);
     return { slug: courseSlug, copied: 0, skipped: prior.actions?.length ?? 0, receipt: prior };
   }
 
@@ -381,41 +414,54 @@ export function copyCourse(root, index, courseSlug, { write = () => {}, force = 
   const seasons = enumerateSeasons(course);
   const showDir = showDirPath(root, course);
   mkdirSync(showDir, { recursive: true });
-  writeFileSync(join(showDir, 'tvshow.nfo'), renderTvShowNfo(course, seasons), 'utf8');
+  atomicWriteFileSync(join(showDir, 'tvshow.nfo'), renderTvShowNfo(course, seasons));
   for (const s of seasons) {
     const dir = seasonDirPath(root, course, s);
     mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, 'season.nfo'), renderSeasonNfo(s), 'utf8');
+    atomicWriteFileSync(join(dir, 'season.nfo'), renderSeasonNfo(s));
   }
 
   // Per-video copy with verification.
   const receiptActions = [];
-  const sampleIndices = new Set(pickSampleIndices(plan.actions.length, 0.05));
+  const sampleIndices = new Set(pickSampleIndices(plan.actions.length, sampleFraction));
   for (let i = 0; i < plan.actions.length; i++) {
     const action = plan.actions[i];
     write(`[${courseSlug}] COPY ${i + 1}/${plan.actions.length}: ${action.to}`);
     const bytes = copyWithVerification(action.from, action.to);
     let sha256 = null;
     if (sampleIndices.has(i)) {
-      sha256 = sha256OfFile(action.to);
+      // Hash BOTH ends and assert equality. A dest-only hash merely snapshots
+      // whatever landed; comparing to the source proves the copy is
+      // bit-identical and catches a wrong/corrupt source the size+cues checks
+      // could miss (e.g. a same-size truncation re-padded, or the wrong
+      // legacy candidate resolving to a same-size file).
+      const srcHash = sha256OfFile(action.from);
+      const dstHash = sha256OfFile(action.to);
+      if (srcHash !== dstHash) {
+        throw new Error(`[${courseSlug}] sampled SHA-256 mismatch: source ${action.from} != copy ${action.to} (src=${srcHash} dst=${dstHash})`);
+      }
+      sha256 = dstHash;
     }
+
+    const season = seasons.find(s => s.seasonNumber === action.season);
+    const epi = season?.videos?.find(e => e.episodeNumber === action.episode);
+    const epiVideo = epi?.video;
     receiptActions.push({
       from: action.from, to: action.to, sizeBytes: bytes,
       season: action.season, episode: action.episode,
+      lessonUrl: epiVideo?.lessonUrl ?? null,
       sha256: sha256,
       sampled: sampleIndices.has(i),
     });
 
     // Write the per-episode .nfo right next to the .webm.
-    const epi = seasons.find(s => s.seasonNumber === action.season)?.videos?.find(e => e.episodeNumber === action.episode);
     if (epi) {
       const nfoPath = action.to.replace(/\.webm$/, '.nfo');
-      writeFileSync(nfoPath, renderEpisodeNfo(course, seasons.find(s => s.seasonNumber === action.season), epi), 'utf8');
+      atomicWriteFileSync(nfoPath, renderEpisodeNfo(course, season, epi));
     }
 
     // Update in-memory index's localPath for this video so we can write
     // back after all copies succeed.
-    const epiVideo = epi?.video;
     if (epiVideo) updateLocalPath(course, epiVideo.lessonUrl, action.to, epiVideo.downloadedAt);
   }
 
@@ -423,7 +469,7 @@ export function copyCourse(root, index, courseSlug, { write = () => {}, force = 
     slug: courseSlug,
     copiedAt: new Date().toISOString(),
     actions: receiptActions,
-    sampleFraction: 0.05,
+    sampleFraction,
     verifiedAt: null,
   };
   writeReceipt(root, courseSlug, receipt);
@@ -494,6 +540,22 @@ export function cleanupCourse(root, courseSlug, { now = Date.now, write = () => 
   const ageMs = now() - new Date(receipt.verifiedAt).getTime();
   if (ageMs > VERIFY_FRESHNESS_MS) {
     return { slug: courseSlug, deleted: 0, skipped: receipt.actions.length, reason: 'VERIFY_STALE', ageMs };
+  }
+  // Re-verify EVERY destination immediately before deleting ANY source.
+  // `verifiedAt` only proves the copy was good at verify time; anything
+  // (a stray --copy --force, an errant rm, a download into the same slot)
+  // could have damaged it inside the 24h window. Deleting a v1 source whose
+  // v2 copy is now missing/wrong-size is unrecoverable, so hard-refuse the
+  // whole course before touching a single byte.
+  for (const a of receipt.actions ?? []) {
+    if (!a.from || a.from === a.to) continue;
+    if (!existsSync(a.to)) {
+      throw new Error(`[${courseSlug}] refusing --cleanup: migrated destination is missing: ${a.to} (its v1 source ${a.from} would be the only remaining copy)`);
+    }
+    const dstSize = statSync(a.to).size;
+    if (a.sizeBytes != null && dstSize !== a.sizeBytes) {
+      throw new Error(`[${courseSlug}] refusing --cleanup: migrated destination size mismatch at ${a.to} (recorded ${a.sizeBytes}, on disk ${dstSize}); re-run --verify before --cleanup`);
+    }
   }
   let deleted = 0;
   for (const a of receipt.actions ?? []) {

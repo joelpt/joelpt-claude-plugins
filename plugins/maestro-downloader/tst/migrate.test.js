@@ -5,7 +5,10 @@ import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { planCourse, planAll, resolveSourcePath, runPlan, copyCourse, runCopy, verifyCourse, runVerify, cleanupCourse, runCleanup, evaluateRefetchGate, MIGRATION_REQUIRES_REFETCH_AFTER } from '../lib/migrate.js';
 import { legacyDeriveOutputPath, legacySanitizeFilename, legacySanitizeFilenamePreAmpStrip } from '../lib/layout.js';
-import { readFileSync, existsSync, writeFileSync as fsWriteFile, mkdirSync as fsMkdir, unlinkSync } from 'node:fs';
+import { readFileSync, existsSync, writeFileSync as fsWriteFile, mkdirSync as fsMkdir, unlinkSync, readdirSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+
+const sha256OfPath = (p) => createHash('sha256').update(readFileSync(p)).digest('hex');
 
 let root;
 
@@ -615,4 +618,110 @@ test('runCleanup: does NOT rename courses/ when at least one receipt is unverifi
   const r = runCleanup(subRoot, { write: () => {} });
   assert.equal(r.renamedCoursesDir, null);
   assert.ok(existsSync(join(subRoot, 'courses')));
+});
+
+// ── data-integrity hardening (post-review fixes) ──────────────────────────────
+
+// H1: a torn writeReceipt would parse-fail → idempotency treats course as
+// never-copied → full re-copy. The fix is tmp+rename; assert no .tmp leak and
+// that the receipt is well-formed JSON.
+test('writeReceipt is atomic: no .json.tmp staging file leaks after copyCourse', () => {
+  const subRoot = join(root, 'receipt-atomic');
+  mkdirSync(subRoot, { recursive: true });
+  const sourcePath = legacyDeriveOutputPath(subRoot, 'a/b', 'Lessons', 1, 'R');
+  writeStubWebmWithCues(sourcePath);
+  const index = { courses: [{
+    slug: 'a/b', title: 'T', instructor: 'I', courseUrl: 'https://x',
+    subscribed: false, contentType: 'default',
+    categories: [{ title: 'Lessons', videos: [makeVideo({
+      bbcMaestroIndex: 1, title: 'R', localPath: sourcePath,
+    })] }],
+  }] };
+  copyCourse(subRoot, index, 'a/b');
+  const migDir = join(subRoot, '.migration');
+  const leaks = readdirSync(migDir).filter(f => f.endsWith('.tmp'));
+  assert.deepEqual(leaks, [], `no .tmp staging files should remain, found: ${leaks}`);
+  // Receipt is valid JSON.
+  JSON.parse(readFileSync(join(migDir, 'a_b.json'), 'utf8'));
+});
+
+// C2: SIGKILL between writeReceipt and atomicWriteJson strands localPath. On
+// the next run, copyCourse must re-apply localPath from the receipt into the
+// (stale, reloaded) index even though it skips the actual copy — otherwise
+// cleanup later deletes the only copy while index.json still points at it.
+test('copyCourse idempotency-skip re-applies localPath from receipt into a stale index', () => {
+  const subRoot = join(root, 'reapply-localpath');
+  mkdirSync(subRoot, { recursive: true });
+  const sourcePath = legacyDeriveOutputPath(subRoot, 'a/b', 'Lessons', 1, 'V');
+  writeStubWebmWithCues(sourcePath);
+  const mkIndex = () => ({ courses: [{
+    slug: 'a/b', title: 'T', instructor: 'I', courseUrl: 'https://x',
+    subscribed: false, contentType: 'default',
+    categories: [{ title: 'Lessons', videos: [makeVideo({
+      bbcMaestroIndex: 1, title: 'V', localPath: sourcePath,
+    })] }],
+  }] });
+  // First run: writes receipt + mutates this index instance.
+  copyCourse(subRoot, mkIndex(), 'a/b');
+  // Simulate a crash before atomicWriteJson: a fresh index reloaded from the
+  // STALE on-disk file still has the v1 localPath.
+  const staleIndex = mkIndex();
+  const v2Path = join(subRoot, 'T - I', 'Season 01', 'T - I - s01e01 - V.webm');
+  assert.equal(staleIndex.courses[0].categories[0].videos[0].localPath, sourcePath,
+    'sanity: stale index still points at v1 source');
+  const res = copyCourse(subRoot, staleIndex, 'a/b');
+  assert.equal(res.copied, 0, 'should skip the copy (receipt exists)');
+  assert.equal(staleIndex.courses[0].categories[0].videos[0].localPath, v2Path,
+    'localPath must be re-applied from the receipt on the idempotency-skip path');
+});
+
+// C1: between --verify and --cleanup the destination could be corrupted/deleted.
+// cleanupCourse must NOT delete the v1 source if the v2 destination is missing
+// or wrong-size, even though verifiedAt is fresh — it must hard-refuse.
+test('cleanupCourse refuses to delete source when destination is missing despite fresh verifiedAt', async () => {
+  const subRoot = join(root, 'cleanup-dest-missing');
+  const { sourcePath } = await setupCopiedCourse(subRoot);
+  verifyCourse(subRoot, 'a/b');
+  const receiptPath = join(subRoot, '.migration', 'a_b.json');
+  const receipt = JSON.parse(readFileSync(receiptPath, 'utf8'));
+  // Corrupt the world AFTER verify: destination vanishes.
+  unlinkSync(receipt.actions[0].to);
+  assert.throws(() => cleanupCourse(subRoot, 'a/b'),
+    /destination/i, 'cleanup must hard-refuse when destination is gone');
+  assert.ok(existsSync(sourcePath),
+    'v1 source MUST survive — it is the only remaining copy');
+});
+
+test('cleanupCourse refuses to delete source when destination size mismatches receipt', async () => {
+  const subRoot = join(root, 'cleanup-dest-truncated');
+  const { sourcePath } = await setupCopiedCourse(subRoot);
+  verifyCourse(subRoot, 'a/b');
+  const receiptPath = join(subRoot, '.migration', 'a_b.json');
+  const receipt = JSON.parse(readFileSync(receiptPath, 'utf8'));
+  fsWriteFile(receipt.actions[0].to, Buffer.alloc(10)); // truncate-ish corruption
+  assert.throws(() => cleanupCourse(subRoot, 'a/b'), /destination/i);
+  assert.ok(existsSync(sourcePath), 'v1 source MUST survive a wrong-size destination');
+});
+
+// H3: the sampled SHA-256 must prove copy FIDELITY (source === destination),
+// not merely snapshot the destination. Assert the recorded hash equals the
+// SOURCE file's hash.
+test('copyCourse sampled receipt sha256 equals the SOURCE file hash (copy-fidelity check)', () => {
+  const subRoot = join(root, 'sha-source-fidelity');
+  mkdirSync(subRoot, { recursive: true });
+  const sourcePath = legacyDeriveOutputPath(subRoot, 'a/b', 'Lessons', 1, 'F');
+  writeStubWebmWithCues(sourcePath);
+  const index = { courses: [{
+    slug: 'a/b', title: 'T', instructor: 'I', courseUrl: 'https://x',
+    subscribed: false, contentType: 'default',
+    categories: [{ title: 'Lessons', videos: [makeVideo({
+      bbcMaestroIndex: 1, title: 'F', localPath: sourcePath,
+    })] }],
+  }] };
+  copyCourse(subRoot, index, 'a/b', { sampleFraction: 1 });
+  const receipt = JSON.parse(readFileSync(join(subRoot, '.migration', 'a_b.json'), 'utf8'));
+  const action = receipt.actions[0];
+  assert.equal(action.sampled, true);
+  assert.equal(action.sha256, sha256OfPath(sourcePath),
+    'recorded sha256 must match the SOURCE, proving the copy is bit-identical');
 });
