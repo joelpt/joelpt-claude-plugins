@@ -17,11 +17,12 @@ Format key: `[BLOCKING]` = no meaningful forward progress on related work; `[NON
 - [ ] [BLOCKING] **Phase 0: Plex POC — verify `<namedseason>` actually surfaces custom season titles on your server**
 
       Context: Phase 0 is a load-bearing POC that confirms Plex's behavior matches the docs *before* any production NFO writing.
-      Autonomous run will produce the test artifacts in `poc/04-plex-nfo/` (hand-crafted minimal show with three `<namedseason>` tags + `Specials/` season + per-episode `<uniqueid>` tags), but the actual Plex library configuration + scan + visual verification must be done by you.
+      ✅ Autonomous run HAS produced the artifacts (commit on `worktree-yolo-maestro`): `poc/04-plex-nfo/generate.mjs` materialises a synthetic `Sing Like the Stars - Eric Vetro` show with FOUR `<namedseason>` tags (Specials s00 + Lessons + two hierarchical "Vocal Exercises → …" seasons) + per-episode `<uniqueid>` + `poster.jpg`/`fanart.jpg`. It uses the **production** renderers, so a Plex GO verifies the real `--copy` output by construction. `poc/04-plex-nfo/findings.md` has the full step-by-step + GO/NO-GO checklist; `expected-nfo-snapshot.md` has the committed rendered XML. The Plex library config + scan + visual verification is the part only you can do.
 
-      What you'll need to do:
+      What you'll need to do (see `poc/04-plex-nfo/findings.md` for the detailed version):
 
-      1. Add `poc/04-plex-nfo/` as a new TV library in Plex.
+      0. Run `node poc/04-plex-nfo/generate.mjs` (the `library/` tree is git-ignored, so regenerate it locally first).
+      1. Add the printed absolute path (`poc/04-plex-nfo/library`) as a new TV library in Plex.
       2. Set agent = **Plex NFO Series**, scanner = Plex TV Series Scanner.
       3. Enable BOTH checkboxes in Library → Advanced:
          - **"Use local Assets"** (topmost in agent order)
