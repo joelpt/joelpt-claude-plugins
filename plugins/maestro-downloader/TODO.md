@@ -254,10 +254,10 @@ Autonomous /yolo run on branch `worktree-maestro-v2-yolo`. Human-input gates tra
 
 ## Phase 4: Polish & Deployment
 
-- [ ] User-friendly error messages for common failure modes
+- [ ] User-friendly error messages for common failure modes — flagged NON-BLOCKING in USER_TODO.md for scoping (unspecified; deferred to avoid churning v1 error paths the v2 cutover may obsolete).
 - [x] Structured logging (debug for segment fetches, info for per-video progress, warn/error for failures)
 - [x] Register plugin in parent repo's `marketplace.json`
-- [ ] Test on macOS and Linux
+- [ ] Test on macOS and Linux — macOS is the dev platform (all 381 tests green here); Linux verification needs a Linux host (environment-gated, defer to user).
 
 ---
 

@@ -93,3 +93,15 @@ Format key: `[BLOCKING]` = no meaningful forward progress on related work; `[NON
       5. ONLY THEN: run `node lib/migrate.js --cleanup`. Renames old `courses/` → `courses.deleted-YYYY-MM-DD/` (NOT `rm -rf`); you remove that manually after a final sanity check.
 
       Why human: irreversible file ops on 39 GB / 556 completed downloads — multi-day re-download cost if anything goes wrong. The plan was tournament-vetted for safety but the actual go/no-go decision must be yours.
+
+- [ ] [NON-BLOCKING] **Phase 4: scope "user-friendly error messages for common failure modes"**
+
+      Context: TODO.md Phase 4 carries this as a single unspecified bullet — no list of modes, no tone/detail target, no acceptance criteria. The autonomous run deliberately did NOT sweep it: mid-v2-transition is a poor time to rewrite v1 error paths that the v2 cutover may obsolete, and "user-friendly" / "which modes" are preference calls only you can make.
+
+      What you'll need to decide:
+
+      1. Which failure modes are worth polishing NOW vs. deferring until after the v2 migration lands. Suggested narrow first cut: missing/invalid env vars (`MAESTRO_ROOT`, `MAESTRO_EMAIL`/`MAESTRO_PASSWORD`), ffmpeg-not-on-PATH, BBC Maestro auth failure.
+      2. Defer CDN/network/disk-full messages — those churn with the download/migration code and are better done post-v2.
+      3. Tone/detail target (terse one-liner vs. actionable remediation hint).
+
+      Why human: open-ended scope + tone is a personal-preference / external-context choice; no safe single autonomous interpretation. No code stub left — nothing was changed.
