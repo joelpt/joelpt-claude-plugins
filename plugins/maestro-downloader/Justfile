@@ -26,6 +26,24 @@ run:
 queue:
     node lib/queue.js
 
+# ── Core commands (replaces retired slash commands) ───────────────────────────
+
+# Test stored credentials (reads from ~/.claude/plugins/maestro-downloader/.env).
+validate:
+    node lib/setup.js --validate
+
+# Crawl BBC Maestro account and update the local course catalogue in index.json.
+fetch-list:
+    node lib/fetch-list.js
+
+# Display the cached course catalogue.
+list:
+    node lib/list.js
+
+# Download a course by slug. Example: just download "instructor/course-slug"
+download COURSE="":
+    node lib/download.js "{{COURSE}}"
+
 # ── v2 migration workflow (run in order, then verify in Plex) ────────────────
 
 # Phase 1.4: capture BBC Maestro DOM fixtures (logs in, hits 6 known courses,
@@ -69,5 +87,5 @@ migrate-cleanup:
 # ── Smoke ────────────────────────────────────────────────────────────────────
 
 smoke:
-    @echo 'Smoke (pre-v2): /setup -> /fetch-list -> /list -> /download -> just serve'
-    @echo 'Smoke (v2 migration): just migrate-schema-v2-dry -> just migrate-schema-v2 -> just capture-fixtures -> /fetch-list (after Phase 1.5 ships) -> just migrate-plan -> just migrate-copy --i-have-re-fetched -> just migrate-verify -> just migrate-cleanup -> Plex library scan (see docs/PLEX_SETUP.md)'
+    @echo 'Smoke (pre-v2): just validate -> just fetch-list -> just list -> just download "slug" -> just serve'
+    @echo 'Smoke (v2 migration): just migrate-schema-v2-dry -> just migrate-schema-v2 -> just capture-fixtures -> just fetch-list -> just migrate-plan -> just migrate-copy --i-have-re-fetched -> just migrate-verify -> just migrate-cleanup -> Plex library scan (see docs/PLEX_SETUP.md)'

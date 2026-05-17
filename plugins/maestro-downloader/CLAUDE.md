@@ -14,8 +14,9 @@ direct HLS-to-AV1 transcoding via ffmpeg, and a local HTML UI for playback.
 
 ## Architecture
 
-The plugin exposes four CLI commands (`/setup`, `/fetch-list`, `/list`, `/download`) and
-maintains all course and download state in a single `index.json` file.
+The plugin is driven via `just` recipes (`just fetch-list`, `just list`, `just download`,
+`just validate`, `just run`, `just serve`) and maintains all course and download state in a
+single `index.json` file.
 
 ### Data & State
 
@@ -29,14 +30,14 @@ maintains all course and download state in a single `index.json` file.
 
 ### Commands
 
-- **`/setup`**: Prompt for credentials + root folder; write `.env`; create folder structure
-- **`/fetch-list`**: Playwright crawl → writes/merges full catalogue into `index.json`.
+- **`just validate`**: Test login with stored credentials from `.env`
+- **`just fetch-list`**: Playwright crawl → writes/merges full catalogue into `index.json`.
   Sequential page loads, random 1.5–3.5 s inter-page delay, 3–6 s inter-course delay.
   Preserves existing `completed`/`downloadedAt`/`localPath` fields on known videos.
   Adds newly discovered videos with `completed: false`.
-- **`/list`**: Reads `index.json`; displays course catalogue. If absent/empty or
-  `lastFetched` is >30 days ago, prints a warning and instructs user to run `/fetch-list`.
-- **`/download`**: For each video in specified course: skip if `completed`, else run ffmpeg
+- **`just list`**: Reads `index.json`; displays course catalogue. If absent/empty or
+  `lastFetched` is >30 days ago, prints a staleness warning.
+- **`just download "slug"`**: For each video in specified course: skip if `completed`, else run ffmpeg
   against cached `manifestUrl` from `index.json`. No browser needed during download.
   On success, updates `completed`, `downloadedAt`, `localPath` in `index.json`.
 
@@ -119,27 +120,25 @@ The 1080p variant URL is derived by inserting `_1080` before `.m3u8` in the mast
 
 ```text
 .claude-plugin/plugin.json
-commands/setup.md
-commands/fetch-list.md
-commands/list.md
-commands/download.md
 lib/setup.js
 lib/fetch-list.js
 lib/list.js
 lib/download.js
+lib/tui/
 ui/index.html
+Justfile
 ```
 
 ### Key Implementation Notes
 
-- **`/fetch-list`**: Playwright intercepts `.m3u8` network requests on each lesson page to
+- **`just fetch-list`**: Playwright intercepts `.m3u8` network requests on each lesson page to
   capture the manifest URL. Load existing `index.json` first; merge new data preserving
   completion fields; write atomically (write temp file, rename).
-- **`/download`**: Reads `manifestUrl` from `index.json`. Derives 1080p variant by
+- **`just download`**: Reads `manifestUrl` from `index.json`. Derives 1080p variant by
   replacing `.m3u8` with `_1080.m3u8`. Spawns ffmpeg subprocess. Updates `index.json`
   after each successful video.
-- **Rate limiting**: `/fetch-list` uses `setTimeout` with `Math.random()` for jitter.
-  `/download` uses stepped backoff (30m → 60m → 60m → 90m → 90m) on network/rate-limit errors,
+- **Rate limiting**: `fetch-list.js` uses `setTimeout` with `Math.random()` for jitter.
+  `download.js` uses stepped backoff (30m → 60m → 60m → 90m → 90m) on network/rate-limit errors,
   and a separate 3-minute CDN-stall pause between same-quality retries (up to 2 stalls before 720p fallback).
 - **Resumability**: `index.json` is written after each completed video; reruns skip
   `completed: true` entries.
@@ -149,9 +148,9 @@ ui/index.html
 
 - Unit: Test `index.json` merge logic (preserve completed, add new, update lastFetched)
 - Unit: Test manifest URL → 1080p variant URL derivation
-- Integration: `/fetch-list` against live account → verify `index.json` structure
-- Integration: `/download` single video → verify file created, `index.json` updated
-- Manual smoke: `/setup` → `/fetch-list` → `/list` → `/download` one video → open in browser
+- Integration: `just fetch-list` against live account → verify `index.json` structure
+- Integration: `just download "slug"` single video → verify file created, `index.json` updated
+- Manual smoke: edit `.env` → `just validate` → `just fetch-list` → `just list` → `just download "slug"` → `just serve`
 
 ## References
 

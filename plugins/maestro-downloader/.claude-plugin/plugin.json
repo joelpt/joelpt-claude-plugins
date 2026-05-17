@@ -1,7 +1,7 @@
 {
   "name": "maestro-downloader",
-  "version": "0.1.12",
-  "description": "Downloads BBC Maestro courses for offline viewing with AV1 video optimization. Provides /setup, /fetch-list, /list, and /download commands with cached course catalogue and resumable sequential downloading.",
+  "version": "0.1.13",
+  "description": "Downloads BBC Maestro courses for offline viewing with AV1 video optimization. Driven via justfile recipes (fetch-list, list, download, validate, run, serve).",
   "author": {
     "name": "Joel Thor"
   },
