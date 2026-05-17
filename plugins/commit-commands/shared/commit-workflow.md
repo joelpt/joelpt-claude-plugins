@@ -9,30 +9,26 @@ speaks only of "in-scope changes".
 ## Steps
 
 DEFINITIONS:
-   "call code review": run `/code-review:code-review`. Show full findings using colorized output and emojis; auto-fix Critical/Important.
+   "call code review": spawn the `feature-dev:code-reviewer` agent via the Task tool (subagent_type `feature-dev:code-reviewer`) scoped to the in-scope changed files. Show full findings using colorized output and emojis; auto-fix Critical/Important.
    "call Codex": run `/codex:review`. Show full findings using colorized output and emojis; auto-fix P0/P1 and for ambiguous/major changes, before auto-fixing, use AskUserQuestion to explain each change, the pro/con, and ask the user if/how to proceed.
-   "simplify:" run `Skill(simplify)` on all changed files.
+   "simplify:" run `Skill(simplify)` on all changed code files.
 
 STEPS:
 
-1. Check the nature of the in-scope changes and:
-   - If trivial or documentation/config/data files only: skip calling code-review, Codex, and simplify
-   - If non-trivial but not highly complex and <= 10 code files changed: call code-review and simplify
-   - If non-trivial and highly complex and/or >10 code files changed: call code-review and Codex in parallel, evaluate the combined set of recommendations, and follow the auto-fix/HITL pattern described above. Then simplify.
-2. If any files were changed in previous step, re-call code review (first re-running `git diff` for a fresh picture), auto-fix, and simplify again.
-3. After step 2 and if further changes were made during that step, **STOP**, explain to user; do not commit. If reviewer found **any** issues (Critical, Important, minor, or suggestions): `AskUserQuestion` "Found N issues and M suggestions. Fix any before committing, or proceed?"
+1. The **Preflight determination** in `## Context` is computed deterministically (Δloc, cognitive/cyclomatic complexity, file classes, path-sensitivity, git regression-gravity). **Execute its "Preflight steps to follow" verbatim, in order** — they already encode the code-review / Codex / simplify decision and the post-fix re-review step. Apply the auto-fix/HITL semantics from DEFINITIONS to each step. Do not re-derive the gating yourself; the determiner has done it.
+   - **Fallback** — only if the determination is absent or prints `DETERMINER_UNAVAILABLE`: judge manually — trivial/docs/config/data-only → skip all; non-trivial & ≤10 code files → call code review + simplify; highly complex and/or >10 code files → call code review + Codex in parallel, then simplify.
+2. Re-review after fixes. On the determiner path this is already the determiner's final emitted step (do not double-run it). On the **fallback** path only: if any files were changed by step 1, re-call code review on a fresh `git diff`, auto-fix, and re-simplify.
+3. If the post-fix re-review made further changes, **STOP**, explain to user; do not commit. If the reviewer found **any** issues (Critical, Important, minor, or suggestions): `AskUserQuestion` "Found N issues and M suggestions. Fix any before committing, or proceed?"
 4. Perform commit loop, below.
-
 
 ## Commit Loop
 
-Repeat until every in-scope change is committed (out-of-scope changes stay untouched):
+Repeat until every in-scope change is committed (out-of-scope changes stay untouched).
+Chain the deterministic command pairs to halve round-trips; the only step needing
+model inspection is the staged-diff gate between them — never chain across it:
 
-1. `git add <specific files>`
-2. `git diff --staged` — verify
-3. `git commit -m "<<Conventional Commits format message>>"`
-4. `git log -1` — confirm
-
+1. `git add <specific files> && git diff --staged` — one call; **inspect** the staged diff output before proceeding.
+2. `git commit -m "<<Conventional Commits format message>>" && git log -1 --stat` — one call; confirm.
 
 ## Git Rules (IMMUTABLE)
 
@@ -43,7 +39,6 @@ Repeat until every in-scope change is committed (out-of-scope changes stay untou
 **Atomic grouping:** one logical change per commit.
 Group if split would break the build (new required param + callsite → same commit).
 Split independent changes. Use `git add -p` for partial-file commits.
-
 
 ## Conventional Commits format message
 
