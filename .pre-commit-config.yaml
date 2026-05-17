@@ -1,0 +1,432 @@
+# Pre-commit hooks configuration
+# See https://pre-commit.com for more information
+# See https://pre-commit.com/hooks.html for more hooks
+
+# Global exclusions
+# - obsolete/: legacy code for reference, not actively maintained
+# - any golden/ directory: test fixtures with potential violations for testing
+exclude: "^(obsolete/|.*/golden/)"
+
+# Default stage for all hooks (individual hooks can override with stages: [commit-msg])
+default_stages: [pre-commit]
+
+repos:
+  # ============================================================================
+  # STAGE 0: Dependency installation
+  # ============================================================================
+
+  # Install hook dependencies (prettier, eslint, stylelint)
+  - repo: local
+    hooks:
+      - id: install-hook-dependencies
+        name: "Setup: install hook dependencies"
+        entry: bash
+        language: system
+        always_run: true
+        pass_filenames: false
+        stages: [pre-commit]
+        args:
+          - -c
+          - |
+            set -e
+
+            # Detect OS
+            if [[ "$OSTYPE" == "darwin"* ]]; then
+              OS="macos"
+            elif [[ "$OSTYPE" == "freebsd"* ]]; then
+              OS="freebsd"
+            elif [[ "$OSTYPE" == "msys" ]] || [[ "$OSTYPE" == "cygwin" ]] || [[ "$OSTYPE" == "win32" ]]; then
+              OS="windows"
+            elif [[ -f /etc/alpine-release ]]; then
+              OS="alpine"
+            elif [[ -f /etc/debian_version ]]; then
+              OS="debian"
+            elif [[ -f /etc/fedora-release ]] || [[ -f /etc/redhat-release ]]; then
+              OS="fedora"
+            elif [[ -f /etc/arch-release ]]; then
+              OS="arch"
+            elif grep -qi microsoft /proc/version 2>/dev/null; then
+              OS="wsl"
+            else
+              echo "⚠️  Unsupported OS: $OSTYPE"
+              echo "ℹ️  Please manually install: Node.js, npm, prettier, eslint, stylelint, markdownlint-cli, shfmt"
+              exit 0
+            fi
+
+            INSTALLED_ANYTHING=false
+
+            # Check and install Node.js
+            if ! command -v node &>/dev/null; then
+              echo "📦 Installing Node.js..."
+              case "$OS" in
+              macos)
+                brew install node
+                ;;
+              freebsd)
+                pkg install -y node npm
+                ;;
+              windows)
+                echo "⚠️  Please install Node.js manually from: https://nodejs.org/"
+                echo "   Or use: winget install OpenJS.NodeJS"
+                exit 1
+                ;;
+              alpine)
+                sudo apk add --no-cache nodejs npm
+                ;;
+              wsl)
+                sudo apt update && sudo apt install -y nodejs npm
+                ;;
+              debian)
+                sudo apt update && sudo apt install -y nodejs npm
+                ;;
+              fedora)
+                sudo dnf install -y nodejs npm
+                ;;
+              arch)
+                sudo pacman -S --noconfirm nodejs npm
+                ;;
+              esac
+              INSTALLED_ANYTHING=true
+            fi
+
+            # Check and install prettier
+            if ! command -v prettier &>/dev/null; then
+              echo "📦 Installing prettier..."
+              npm install -g prettier
+              INSTALLED_ANYTHING=true
+            fi
+
+            # Check and install eslint
+            if ! command -v eslint &>/dev/null; then
+              echo "📦 Installing eslint..."
+              npm install -g eslint
+              INSTALLED_ANYTHING=true
+            fi
+
+            # Check and install stylelint
+            if ! npm list -g stylelint &>/dev/null; then
+              echo "📦 Installing stylelint..."
+              npm install -g stylelint stylelint-config-standard
+              INSTALLED_ANYTHING=true
+            fi
+
+            # Check and install markdownlint-cli
+            if ! command -v markdownlint &>/dev/null; then
+              echo "📦 Installing markdownlint-cli..."
+              npm install -g markdownlint-cli
+              INSTALLED_ANYTHING=true
+            fi
+
+            # Check and install shfmt
+            if ! command -v shfmt &>/dev/null; then
+              echo "📦 Installing shfmt..."
+              case "$OS" in
+              macos)
+                brew install shfmt
+                ;;
+              freebsd)
+                pkg install -y shfmt
+                ;;
+              windows)
+                echo "⚠️  Please install shfmt manually from: https://github.com/mvdan/sh/releases"
+                echo "   Or use: winget install shfmt"
+                exit 1
+                ;;
+              alpine)
+                sudo apk add --no-cache shfmt
+                ;;
+              wsl | debian)
+                SHFMT_VERSION="3.8.0"
+                ARCH=$(uname -m)
+                case "$ARCH" in
+                x86_64) SHFMT_ARCH="amd64" ;;
+                aarch64) SHFMT_ARCH="arm64" ;;
+                armv7l) SHFMT_ARCH="arm" ;;
+                *)
+                  echo "⚠️  Unsupported architecture for shfmt: $ARCH"
+                  exit 1
+                  ;;
+                esac
+                curl -Lo /tmp/shfmt "https://github.com/mvdan/sh/releases/download/v${SHFMT_VERSION}/shfmt_v${SHFMT_VERSION}_linux_${SHFMT_ARCH}"
+                chmod +x /tmp/shfmt
+                sudo mv /tmp/shfmt /usr/local/bin/shfmt
+                ;;
+              fedora)
+                sudo dnf install -y shfmt
+                ;;
+              arch)
+                sudo pacman -S --noconfirm shfmt
+                ;;
+              esac
+              INSTALLED_ANYTHING=true
+            fi
+
+            if [[ "$INSTALLED_ANYTHING" == "false" ]]; then
+              exit 0
+            else
+              echo "✅ Hook dependencies installed successfully"
+              hash -r 2>/dev/null || true
+            fi
+
+  # ============================================================================
+  # STAGE 1: Autofix/autoformat trivial issues
+  # ============================================================================
+
+  # File modification hooks (auto-stage modifications)
+  - repo: local
+    hooks:
+      - id: trailing-whitespace
+        name: "Autofix: trim trailing whitespace"
+        entry: bash -c 'for f in "$@"; do sed -i.bak "s/[[:space:]]*$//" "$f" && rm -f "$f.bak"; git add "$f" 2>/dev/null || true; done' --
+        language: system
+        types: [text]
+        exclude: '\.patch$'
+      - id: end-of-file-fixer
+        name: "Autofix: fix end of files"
+        entry: bash -c 'for f in "$@"; do [ -s "$f" ] && [ -z "$(tail -c 1 "$f")" ] || echo >> "$f"; git add "$f" 2>/dev/null || true; done' --
+        language: system
+        types: [text]
+        exclude: '\.patch$'
+      - id: mixed-line-ending
+        name: "Autofix: fix line endings"
+        entry: bash -c 'for f in "$@"; do sed -i.bak "s/\r$//" "$f" && rm -f "$f.bak"; git add "$f" 2>/dev/null || true; done' --
+        language: system
+        types: [text]
+      - id: requirements-txt-fixer
+        name: "Autofix: sort requirements.txt"
+        entry: bash -c 'for f in "$@"; do sort -u "$f" -o "$f"; git add "$f" 2>/dev/null || true; done' --
+        language: system
+        files: 'requirements.*\.txt$'
+      - id: fix-byte-order-marker
+        name: "Autofix: remove UTF-8 BOM"
+        entry: bash -c 'for f in "$@"; do sed -i.bak "1s/^\xEF\xBB\xBF//" "$f" && rm -f "$f.bak"; git add "$f" 2>/dev/null || true; done' --
+        language: system
+        types: [text]
+
+  # File validation hooks (from pre-commit-hooks, read-only checks)
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: check-yaml
+        name: "Autofix: check yaml"
+        args: ["--unsafe"] # Allow custom YAML tags
+      - id: check-json
+        name: "Autofix: check json"
+      - id: check-toml
+        name: "Autofix: check toml"
+      - id: check-xml
+        name: "Autofix: check xml"
+      - id: check-added-large-files
+        name: "Autofix: check for large files"
+        args: ["--maxkb=500"]
+      - id: check-merge-conflict
+        name: "Autofix: check for merge conflicts"
+      - id: check-case-conflict
+        name: "Autofix: check for case conflicts"
+      - id: check-executables-have-shebangs
+        name: "Autofix: check executables have shebangs"
+      - id: detect-private-key
+        name: "Autofix: detect private keys"
+        exclude: "^(tst/.*|txt/fixtures/.*|.*test.*|.*fixture.*)$"
+      - id: forbid-new-submodules
+        name: "Autofix: forbid new submodules"
+
+  # Make scripts with shebangs executable
+  - repo: local
+    hooks:
+      - id: make-scripts-executable
+        name: "Autofix: make shebang scripts executable"
+        entry: bash -c 'for file in "$@"; do if head -1 "$file" | grep -q "^#!"; then chmod +x "$file"; git add "$file" 2>/dev/null || true; fi; done' --
+        language: system
+        types_or: [shell, python, perl, ruby]
+
+  # Shell script formatting
+  - repo: local
+    hooks:
+      - id: shfmt
+        name: "Autofix: shell scripts"
+        entry: bash -c 'shfmt -i 2 -ci -bn -w "$@"; git add "$@" 2>/dev/null || true' --
+        language: system
+        types: [shell]
+        verbose: true
+
+  # Python formatting
+  - repo: local
+    hooks:
+      - id: black
+        name: "Autofix: Python (black)"
+        entry: bash -c 'black "$@"; git add "$@" 2>/dev/null || true' --
+        language: system
+        types: [python]
+        verbose: true
+
+  # Python linting with autofix
+  - repo: local
+    hooks:
+      - id: ruff
+        name: "Autofix: Python linting (ruff)"
+        entry: bash -c 'ruff check --fix "$@"; git add "$@" 2>/dev/null || true' --
+        language: system
+        types: [python]
+        verbose: true
+
+  # Python type checking with autofix
+  - repo: local
+    hooks:
+      - id: ty-fix
+        name: "Autofix: Python types (ty)"
+        entry: bash -c 'ty check --fix "$@"; git add "$@" 2>/dev/null || true' --
+        language: system
+        types: [python]
+        verbose: true
+
+  # Markdown formatting
+  - repo: local
+    hooks:
+      - id: markdownlint-fix
+        name: "Autofix: Markdown"
+        entry: bash -c 'markdownlint --fix "$@"; git add "$@" 2>/dev/null || true' --
+        language: system
+        types: [markdown]
+        exclude: '^(TODO.*\.md|.*TODO.*\.md|CLAUDE\.md)$'
+        verbose: true
+
+  # CSS/HTML/JSON formatting
+  - repo: local
+    hooks:
+      - id: prettier
+        name: "Autofix: CSS/HTML/JSON/YAML (prettier)"
+        entry: bash -c 'prettier --write "$@"; git add "$@" 2>/dev/null || true' --
+        language: system
+        types_or: [css, html, json, yaml]
+        verbose: true
+
+  # JavaScript linting with autofix
+  - repo: local
+    hooks:
+      - id: eslint-fix
+        name: "Autofix: JavaScript (eslint)"
+        entry: bash -c 'eslint --fix "$@"; git add "$@" 2>/dev/null || true' --
+        language: system
+        types: [javascript]
+        verbose: true
+
+  # ============================================================================
+  # STAGE 2: Validation and checks (no autofix)
+  # ============================================================================
+
+  # Shell script linting
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.9.0.6
+    hooks:
+      - id: shellcheck
+        name: "Validate: shell scripts (shellcheck)"
+        args: ["--severity=warning"]
+
+  # Validate scripts with shebangs are executable
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: check-shebang-scripts-are-executable
+        name: "Validate: shebang scripts are executable"
+      - id: debug-statements
+        name: "Validate: no debug statements"
+
+  # Dockerfile linting
+  - repo: https://github.com/hadolint/hadolint
+    rev: v2.12.1-beta
+    hooks:
+      - id: hadolint-docker
+        name: "Validate: Dockerfiles (hadolint)"
+        args: ["--ignore", "DL3008", "--ignore", "DL3009"]
+
+  # Python type checking
+  - repo: local
+    hooks:
+      - id: ty
+        name: "Validate: Python types (ty)"
+        entry: ty check
+        language: system
+        types: [python]
+        pass_filenames: false
+        exclude: "^tst/"
+
+  # YAML linting (requires .yamllint config)
+  - repo: https://github.com/adrienverge/yamllint
+    rev: v1.33.0
+    hooks:
+      - id: yamllint
+        name: "Validate: YAML (yamllint)"
+        args: ["-c", ".yamllint"]
+
+  # CSS linting
+  - repo: https://github.com/thibaudcolas/pre-commit-stylelint
+    rev: v16.2.1
+    hooks:
+      - id: stylelint
+        name: "Validate: CSS (stylelint)"
+        files: \.(css|scss|sass)$
+        additional_dependencies:
+          - stylelint@16.2.1
+          - stylelint-config-standard@36.0.0
+
+  # JavaScript linting (validation pass after autofix)
+  - repo: local
+    hooks:
+      - id: eslint-validate
+        name: "Validate: JavaScript (eslint)"
+        entry: eslint
+        language: system
+        types: [javascript]
+
+  # Markdown linting (validation pass after autofix)
+  - repo: https://github.com/igorshubovych/markdownlint-cli
+    rev: v0.38.0
+    hooks:
+      - id: markdownlint
+        name: "Validate: Markdown (markdownlint)"
+        exclude: '^(TODO.*\.md|.*TODO.*\.md|CLAUDE\.md)$'
+
+  # Check for secrets (gitleaks)
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.18.1
+    hooks:
+      - id: gitleaks
+        name: "Validate: detect secrets (gitleaks)"
+        exclude: "^(tst/.*|txt/fixtures/.*|.*test.*|.*fixture.*)$"
+
+  # Conventional commits (commitlint)
+  - repo: https://github.com/compilerla/conventional-pre-commit
+    rev: v3.0.0
+    hooks:
+      - id: conventional-pre-commit
+        name: "Validate: commit message format"
+        stages: [commit-msg]
+        args: ["--strict"]
+
+  # ============================================================================
+  # STAGE 3: Project-specific hooks (optional)
+  # ============================================================================
+
+  # Run local pre-commit hooks if they exist
+  - repo: local
+    hooks:
+      - id: run-local-hooks
+        name: "Local: run project-specific pre-commit hooks"
+        entry: bash -c '[ ! -f .pre-commit-config-local.yaml ] || pre-commit run --config .pre-commit-config-local.yaml --hook-stage commit --all-files >&2' --
+        language: system
+        always_run: true
+        pass_filenames: false
+        verbose: true
+
+# Configuration for CI integration
+ci:
+  autofix_commit_msg: |
+    chore: auto-fix pre-commit hooks
+
+    [skip ci]
+  autofix_prs: false
+  autoupdate_commit_msg: "chore: update pre-commit hooks"
+  autoupdate_schedule: weekly
+  skip: []
+  submodules: false
