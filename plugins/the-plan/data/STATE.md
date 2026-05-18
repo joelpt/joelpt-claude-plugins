@@ -45,11 +45,6 @@ Rotation is allowed at any review boundary — do not let the active wedge becom
 
 ## Recent context
 
-(populated by tend runs; the tend skill writes a 1–3 sentence summary here after each pass.
-Older context rotates into `LOG/` and `REVIEWS/`.)
-
-## Recent context
-
 v0.1 planning pass (2026-05-17):
 - Deepened all four end goals with explicit theories of change, confidence scores, and filtered open questions
 - Created ENABLERS framework (5 cross-cutting capabilities needed by multiple goals)

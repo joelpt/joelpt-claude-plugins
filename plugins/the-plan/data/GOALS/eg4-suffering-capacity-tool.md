@@ -1,5 +1,5 @@
 ---
-id: goal-suffer-capacity-001
+id: goal-eg4-capacity-001
 type: goal
 parent: eg4-reduce-suffering
 horizon: medium

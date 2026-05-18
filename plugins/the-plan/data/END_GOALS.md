@@ -1,7 +1,7 @@
 ---
 title: End Goals
 loaded_every_run: true
-last_touched: 2026-04-22
+last_touched: 2026-05-17
 status: draft
 ---
 
@@ -12,6 +12,8 @@ These change rarely.
 When they change, it is a deliberate event recorded in `REVIEWS/` and reflected in an ADR.
 
 ## EG-1: Increase the number of awakened beings on the planet
+
+`id: eg1-awakening`
 
 **Working definition:**
 A being is "more awakened" to the extent that they directly perceive the nature of experience with reduced reactivity, increased equanimity, and increased compassionate responsiveness.
@@ -38,6 +40,8 @@ This is not a religious or sectarian claim — many traditions and many secular 
 
 ## EG-2: Address climate change
 
+`id: eg2-climate`
+
 **Working definition:**
 Reduce greenhouse gas concentrations and/or increase planetary resilience to climate disruption already in motion.
 
@@ -59,6 +63,8 @@ Reduce greenhouse gas concentrations and/or increase planetary resilience to cli
 - At our resource scale, is dollars-to-impact higher than hours-to-impact in climate?
 
 ## EG-3: Support democratic institutions and constrain bad governance
+
+`id: eg3-governance`
 
 **Working definition (reframed from "reduce bad governments and fascism"):**
 Instead of targeting regime change, support institutions that constrain authoritarian power: journalism, human rights monitoring, dissident protection, civic literacy.
@@ -86,6 +92,8 @@ Reframing from "reduce bad governments" to "support constraining institutions" s
 - Is there a tool or population-focus where we have comparative advantage?
 
 ## EG-4: Reduce needless suffering, broadly
+
+`id: eg4-reduce-suffering`
 
 **Working definition:**
 Suffering that arises from causes we know how to address — poverty, untreated illness, isolation, despair, factory-farm conditions for sentient beings.
