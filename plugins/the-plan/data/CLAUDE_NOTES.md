@@ -27,3 +27,30 @@ Some days there genuinely is nothing to refine. The tend skill should be allowed
 ### 2026-04-22 concern: civilizational goals invite grandiosity
 
 The four end goals are large enough that any specific concrete action will feel insufficient by comparison. This creates pressure to either (a) produce vague high-altitude planning that never lands, or (b) abandon the framing for something tractable. The defense is the active-wedge discipline plus honest confidence scoring. Watch confidence scores over time — if they trend toward the median, the system is being honest; if they cluster at the extremes, something is off.
+
+### 2026-05-17 meta-proposal: first active wedge recommendation
+
+Deepened all four end goals with explicit theories of change and honest confidence scoring (0.40–0.70).
+Refined EG-3's framing (from "reduce bad governments" to "support constraining institutions") to stay within ethics bounds.
+Created ENABLERS framework: five cross-cutting capabilities (financial runway, tech platform, credibility, networks, validation) that multiple goals depend on.
+
+**Wedge recommendation for v0.1 (month 1–3):**
+
+Start with **EN-1 (Financial runway) + EN-3 (Credibility)** as the immediate focus.
+Reason: All downstream work depends on having 12+ months of uninterrupted time.
+Can build credibility in parallel by publicly documenting the planning process itself (this plan, design decisions, confidence updates).
+By month 2–3, with runway secured and baseline credibility established, shift primary wedge to **EG-4 (reduce suffering via capacity-building tool)**.
+
+Why EG-4 for month 2–3 pivot:
+- Highest confidence (0.70) and most skill-aligned (software + impact measurement)
+- Builds EN-2 (reusable SDK) as side effect
+- Creates validation loop with actual nonprofits (EN-5) faster than EG-1 or EG-2
+- Potential to unlock secondary income stream (SaaS licensing to nonprofits) that reduces income-earning pressure
+
+Secondary parallel work (5–10 hrs/month, not primary wedge):
+- EN-4: start 2–3 conversations with practitioners in EG-1 domain (contemplative teachers, researchers) to inform later pivot if EG-4 stalls
+- EN-5: design metrics and pilot protocol for EG-4 capacity-building tool (what success looks like, how to measure nonprofit impact)
+
+**Blocked by:** Need approval for income plan. Current autonomy ceiling is "advisory-only" so this is a proposal, not a commitment. Joel needs to decide: Is consulting/contract income the runway strategy, or venture/grant funding, or something else?
+
+**Contingency:** If runway securing takes longer than month 1, extend EN-1 focus to month 2 and defer EG-4 pilot until month 3–4.
