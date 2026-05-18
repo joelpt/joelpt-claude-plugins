@@ -22,14 +22,14 @@
 
 ## v0.2 — Automation
 
-- [ ] Python helper: cron driver script (`scripts/tend_driver.py`) — TDD
+- [x] Python helper: cron driver script (`scripts/tend_driver.py`) — TDD
 - [ ] Cron entry: daily tend at 09:00 local
 - [ ] Cron entry: weekly review Sundays 10:00
 - [ ] Cron entry: monthly recalibrate first-of-month
 - [ ] Cron entry: quarterly anchor check
 - [ ] Cron entry: annual epic review
 - [ ] Approval-queue CLI helper (`just approve`)
-- [ ] Schema validator (frontmatter integrity check) — TDD
+- [x] Schema validator (frontmatter integrity check) — TDD
 - [ ] Plugin smoke test that exercises commands non-destructively
 
 ## v1.0 — Hardening

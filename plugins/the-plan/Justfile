@@ -31,24 +31,28 @@ approve:
 
 # End-to-end sanity check: verify plugin structure, schema, key files exist.
 smoke:
-    @echo "Checking plugin manifest..."
-    @test -f .claude-plugin/plugin.json || (echo "MISSING: plugin manifest" && exit 1)
-    @echo "Checking core data files..."
-    @test -f data/ETHICS.md || (echo "MISSING: ETHICS.md" && exit 1)
-    @test -f data/END_GOALS.md || (echo "MISSING: END_GOALS.md" && exit 1)
-    @test -f data/STATE.md || (echo "MISSING: STATE.md" && exit 1)
-    @test -f data/APPROVAL_QUEUE.md || (echo "MISSING: APPROVAL_QUEUE.md" && exit 1)
-    @echo "Checking skill..."
-    @test -f skills/tend-the-plan/SKILL.md || (echo "MISSING: tend-the-plan skill" && exit 1)
-    @echo "Checking commands..."
-    @test -f commands/plan-tend.md || (echo "MISSING: /plan-tend command" && exit 1)
-    @test -f commands/plan-status.md || (echo "MISSING: /plan-status command" && exit 1)
-    @test -f commands/plan-approve.md || (echo "MISSING: /plan-approve command" && exit 1)
-    @echo "All smoke checks passed."
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "Checking plugin manifest..."
+    test -f .claude-plugin/plugin.json || (echo "MISSING: plugin manifest" && exit 1)
+    echo "Checking core data files..."
+    test -f data/ETHICS.md || (echo "MISSING: ETHICS.md" && exit 1)
+    test -f data/END_GOALS.md || (echo "MISSING: END_GOALS.md" && exit 1)
+    test -f data/STATE.md || (echo "MISSING: STATE.md" && exit 1)
+    test -f data/APPROVAL_QUEUE.md || (echo "MISSING: APPROVAL_QUEUE.md" && exit 1)
+    echo "Checking skill..."
+    test -f skills/tend-the-plan/SKILL.md || (echo "MISSING: tend-the-plan skill" && exit 1)
+    echo "Checking commands..."
+    test -f commands/plan-tend.md || (echo "MISSING: /plan-tend command" && exit 1)
+    test -f commands/plan-status.md || (echo "MISSING: /plan-status command" && exit 1)
+    test -f commands/plan-approve.md || (echo "MISSING: /plan-approve command" && exit 1)
+    echo "Running Python tests..."
+    python3 -m pytest tst/ -q
+    echo "All smoke checks passed."
 
-# Placeholder until v0.2 ships Python helpers and tests.
+# Run Python test suite (schema validator, cron driver).
 test:
-    @echo "No tests yet — Python helpers arrive in v0.2."
+    python3 -m pytest tst/ -v
 
 # Run from a fresh state. Same as 'just tend' for now.
 run: tend
