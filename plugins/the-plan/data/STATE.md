@@ -4,8 +4,6 @@ loaded_every_run: true
 last_touched: 2026-05-17
 ---
 
-# Plan State
-
 The single canonical "where are we" file.
 Everything else is detail.
 
@@ -46,6 +44,7 @@ Rotation is allowed at any review boundary — do not let the active wedge becom
 ## Recent context
 
 v0.1 planning pass (2026-05-17):
+
 - Deepened all four end goals with explicit theories of change, confidence scores, and filtered open questions
 - Created ENABLERS framework (5 cross-cutting capabilities needed by multiple goals)
 - Proposed first active wedge (EN-1 → EG-4) pending Joel approval

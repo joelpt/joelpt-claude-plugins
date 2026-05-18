@@ -27,6 +27,7 @@ Design and pilot a tool that helps suffering-reducer organizations (GiveWell Top
 **Mechanism:** Savings → redirect to direct work. 50 orgs × $20k saved × 80% direct-work allocation = $800k additional impact capacity annually.
 
 **Why it works at our scale:**
+
 - One tool, reusable across many orgs (not one-off consulting)
 - Joel has deep software expertise
 - Builds EN-2 (reusable SDK) as side effect
@@ -54,23 +55,27 @@ Design and pilot a tool that helps suffering-reducer organizations (GiveWell Top
 ## Milestones (draft; to be refined by tend)
 
 ### Milestone 1: Problem validation (month 1–2, 10–15 hrs)
+
 - [ ] Interview 5 nonprofit leaders; identify top 2 operations pain points
 - [ ] Research competitor tools; define unique angle
 - [ ] Draft functional spec for MVP (scope, timeline, tech stack)
 - [ ] Move to "active" if problem is real and MVP is scoped realistically
 
 ### Milestone 2: MVP design & architecture (month 2–3, 20–30 hrs)
+
 - [ ] Finalize tech architecture (cloud platform, data model, auth)
 - [ ] Create clickable prototype / wireframes
 - [ ] Get feedback from 2 early-user orgs
 - [ ] Estimate engineering effort (go/no-go decision point)
 
 ### Milestone 3: MVP build (month 3–5, 40–60 hrs, primary wedge)
+
 - [ ] Core feature set shipped
 - [ ] 3 alpha users in live pilot
 - [ ] Feedback loop live (monthly review calls)
 
 ### Milestone 4: Measurement & iteration (month 5–6, 20–30 hrs)
+
 - [ ] Impact audit (cost savings quantified)
 - [ ] Confidence update based on pilot results
 - [ ] Decision: scale, pivot, or wind down?

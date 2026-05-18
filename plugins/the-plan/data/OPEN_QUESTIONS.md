@@ -3,8 +3,6 @@ title: Open Questions
 last_touched: 2026-04-22
 ---
 
-# Open Questions
-
 Questions that block or shape planning and that Claude cannot answer alone.
 Joel reviews periodically; answered questions get archived to `REVIEWS/` with the answer.
 

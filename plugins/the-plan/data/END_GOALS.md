@@ -5,8 +5,6 @@ last_touched: 2026-05-17
 status: draft
 ---
 
-# End Goals
-
 The anchors that calibrate every other decision in this plan.
 These change rarely.
 When they change, it is a deliberate event recorded in `REVIEWS/` and reflected in an ADR.
@@ -35,6 +33,7 @@ This is not a religious or sectarian claim — many traditions and many secular 
 **Confidence:** 0.65 — addressable bottleneck is real; AI-assisted delivery is plausible; but measurement of "awakeness" is hard and risk of inauthenticity is genuine.
 
 **Open questions (linked to Q-001, Q-002):**
+
 - Early target population specificity: beginners, intermediate stuck-plateau practitioners, or both?
 - Evaluation: what criteria distinguish real benefit from felt-benefit or placebo response?
 
@@ -59,6 +58,7 @@ Reduce greenhouse gas concentrations and/or increase planetary resilience to cli
 **Confidence:** 0.50 — indirect leverage exists but is diffuse; climate work is crowded with well-resourced competitors; the software-angle compounding claim is speculative.
 
 **Open questions (linked to Q-003):**
+
 - Is there a software/AI angle that compounds rather than just adds?
 - At our resource scale, is dollars-to-impact higher than hours-to-impact in climate?
 
@@ -88,6 +88,7 @@ Reframing from "reduce bad governments" to "support constraining institutions" s
 **Confidence:** 0.40 — the reframing is cleaner but the crowded landscape makes differentiation hard; uncertain where small-scale contribution would be non-trivial.
 
 **Open questions (linked to Q-004):**
+
 - Is this end goal even appropriate to pursue actively, or should energy be redirected to other goals with clearer marginal impact?
 - Is there a tool or population-focus where we have comparative advantage?
 
@@ -114,6 +115,7 @@ Two vectors, with different time horizons:
 Start with a 70/30 split: give $700 now to proven charities; allocate 30% of hours (3–9 hrs/week) to a capacity-building tool. Revisit quarterly.
 
 **Open questions (linked to Q-005):**
+
 - Right ratio of immediate giving vs. capacity-building at this scale?
 - Which suffering-reducer tool would unlock the most value?
 

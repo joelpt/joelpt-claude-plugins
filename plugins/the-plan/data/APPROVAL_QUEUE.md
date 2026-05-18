@@ -4,8 +4,6 @@ loaded_every_run: true
 last_touched: 2026-04-22
 ---
 
-# Approval Queue
-
 Proposed actions awaiting Joel's explicit approval before execution.
 Claude appends to this file; Joel reviews, marks `approved` / `rejected` / `deferred`, and adds notes.
 Approved items move into `TASKS/` with `needs_approval: false` for execution.

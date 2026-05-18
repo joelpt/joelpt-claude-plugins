@@ -3,8 +3,6 @@ title: Claude's Notes
 last_touched: 2026-05-17
 ---
 
-# Claude's Notes
-
 A place for the agent to register dissent, concern, meta-proposals, or observations that don't fit elsewhere.
 Append-only.
 Joel reads periodically and may respond inline or by adjusting the plan.
@@ -42,12 +40,14 @@ Can build credibility in parallel by publicly documenting the planning process i
 By month 2–3, with runway secured and baseline credibility established, shift primary wedge to **EG-4 (reduce suffering via capacity-building tool)**.
 
 Why EG-4 for month 2–3 pivot:
+
 - Highest confidence (0.70) and most skill-aligned (software + impact measurement)
 - Builds EN-2 (reusable SDK) as side effect
 - Creates validation loop with actual nonprofits (EN-5) faster than EG-1 or EG-2
 - Potential to unlock secondary income stream (SaaS licensing to nonprofits) that reduces income-earning pressure
 
 Secondary parallel work (5–10 hrs/month, not primary wedge):
+
 - EN-4: start 2–3 conversations with practitioners in EG-1 domain (contemplative teachers, researchers) to inform later pivot if EG-4 stalls
 - EN-5: design metrics and pilot protocol for EG-4 capacity-building tool (what success looks like, how to measure nonprofit impact)
 

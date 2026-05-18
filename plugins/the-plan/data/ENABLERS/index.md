@@ -4,8 +4,6 @@ last_touched: 2026-05-17
 description: Cross-cutting capabilities that unlock multiple end goals
 ---
 
-# Enablers
-
 Capabilities and assets that create optionality across multiple end goals.
 These are prerequisites or multipliers, not goals themselves.
 
@@ -16,6 +14,7 @@ All four end goals either require capital (giving, team, infrastructure) or requ
 Without runway, marginal income generation becomes the active wedge, crowding out the actual work.
 
 **Paths to runway:**
+
 - Consulting/contract work (⚡ fast, but attention-intensive)
 - Productized service / tool licensing (slower to build, but potentially scalable)
 - Angel/grant funding (requires credibility or unique insight first)
@@ -35,6 +34,7 @@ Multiple end goals could benefit from shared tech infrastructure (personalized l
 Building this once and reusing saves months of duplicated work.
 
 **Candidate components:**
+
 - Adaptive learning / coaching engine (EG-1: contemplative coaching; EG-4: nonprofit training)
 - Impact measurement / data aggregation (EG-2: climate tooling; EG-4: charity effectiveness)
 - Secure communication (EG-3: dissident protection; EG-1: private contemplative coaching)
@@ -54,6 +54,7 @@ Credibility in relevant domains (AI, ethics, effective giving, contemplative pra
 Without visibility, even good work stays local.
 
 **Paths to credibility:**
+
 - Public writing (blog, essays, open-source commentary on AI ethics)
 - Speaking (conferences, podcasts, workshops)
 - Open-source projects (showing code quality, transparency)
@@ -74,6 +75,7 @@ Each end goal lives in a domain with existing expert practitioners.
 Relationships with these experts accelerate learning, provide reality-checks, and create co-creation opportunities.
 
 **Target networks:**
+
 - **EG-1:** Contemplative practitioners (experienced teachers, researchers in contemplative studies)
 - **EG-2:** Climate scientists, technologists in climate tech, charity leaders
 - **EG-3:** Journalists, human rights organizations, technologists in privacy/security
@@ -93,6 +95,7 @@ By month 12, have at least 2 ongoing relationships (monthly check-ins, collabora
 All theories of change are speculative until tested. Quick iteration on measurement, feedback, and validation is the difference between "seems good" and "actually works."
 
 **Components:**
+
 - Experimental design (what would falsify the theory?)
 - User feedback loops (real practitioners, real beneficiaries)
 - Outcome measurement (what does success look like? how do we measure it?)

@@ -4,8 +4,6 @@ loaded_every_run: true
 last_touched: 2026-04-22
 ---
 
-# Ethics
-
 This file is prepended to every cron run prompt and to every skill invocation that proposes actions.
 It is non-negotiable.
 If a proposed move violates anything here, drop the move and write a one-line note to `CLAUDE_NOTES.md` explaining the refusal.
