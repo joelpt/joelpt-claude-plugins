@@ -84,6 +84,8 @@ The plugin's *advertised* name (what users type in `@joelpt-claude-plugins`) com
 
 Plugins originally lived as standalone dirs under `~/code/<name>` and as entries in a `local` marketplace at `~/.claude/plugins/marketplaces/local/`. They were vendored into this monorepo on 2026-04-30 via `rsync` (no git history preserved — the originals remain at their old paths as backup). `wip-skill` and `the-plan` had separate GitHub remotes (`joelpt/wip-skill`, `joelpt/the-plan`) which are now orphaned and should be archived once you've confirmed everything works here.
 
+`maestro-downloader` was the reverse case: extracted back out on 2026-05-17 to its own standalone repo (`joelpt/maestro-downloader`, working copy at `~/code/maestro-downloader`), which is now authoritative. It is no longer a plugin in this marketplace — do not re-add it.
+
 ## License
 
 Private. See individual plugin dirs for their own license declarations.
