@@ -18,7 +18,8 @@ Without runway, marginal income generation becomes the active wedge, crowding ou
 - Consulting/contract work (⚡ fast, but attention-intensive)
 - Productized service / tool licensing (slower to build, but potentially scalable)
 - Angel/grant funding (requires credibility or unique insight first)
-
+- Other ideas - be creative and don't limit yourself to the above categories or to typical ideas
+- 
 **Success criteria:**
 12 months of living expenses + overhead ($30–50k) in reserve.
 This buys 12 months of 20–29 hrs/week focused work without hustling for income.
