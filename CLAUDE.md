@@ -73,7 +73,6 @@ The plugin's *advertised* name (what users type in `@joelpt-claude-plugins`) com
 |---|---|
 | `clickup` | `clickup` |
 | `deep-research` | `deep-research` |
-| `maestro-downloader` | `maestro-downloader` |
 | `plugin-dev` | `plugin-dev` |
 | `search-rag` | `search-rag` |
 | `tao` | `tao` |
