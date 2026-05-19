@@ -1,9 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(mkdir -p ~/.claude/plugins/cache/local/search-rag)",
-      "Bash(ln -sfn /Users/joelthor/code/search-rag ~/.claude/plugins/cache/local/search-rag/0.1.0)",
-      "Read(//Users/joelthor/.claude/plugins/cache/local/**)"
-    ]
-  }
-}

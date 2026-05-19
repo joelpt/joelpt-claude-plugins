@@ -1,9 +1,0 @@
-{
-  "name": "tao",
-  "displayName": "Tao",
-  "description": "Advanced multi-model AI reasoning workflows for complex decision analysis, debugging, code review, and technical architecture. Routes to optimal Claude model tiers (Opus/Sonnet/Haiku) for each task type.",
-  "version": "2.0.1",
-  "author": {
-    "name": "Joel Thor"
-  }
-}

@@ -1,27 +1,34 @@
 # joelpt-claude-plugins
 
-Private monorepo marketplace of Claude Code plugins authored by [@joelpt](https://github.com/joelpt).
+Private Claude Code plugin **marketplace index** by [@joelpt](https://github.com/joelpt).
+This repo holds only `marketplace.json` — every plugin lives in its own private repo.
 
 ## Plugins
 
-| Name | Description |
+| Plugin | Repo |
 |---|---|
-| [`search-rag`](plugins/search-rag) | Local-first LanceDB RAG over project documentation. |
-| [`tao`](plugins/tao) | Multi-model AI reasoning workflows (debug, codereview, secaudit, ...). |
-| [`clickup`](plugins/clickup) | ClickUp project management via MCP. |
-| [`wip`](plugins/wip) | Session handoff: auto-injects `WIP.md` on resume, captures state on stop/compact. |
-| [`the-plan`](plugins/the-plan) | Cron-driven long-horizon planning agent. |
-| [`tip-of-the-day`](plugins/tip-of-the-day) | Curated tip briefing at session start. |
+| `search-rag` | [`joelpt/claude-plugin-search-rag`](https://github.com/joelpt/claude-plugin-search-rag) |
+| `tao` | [`joelpt/claude-plugin-tao`](https://github.com/joelpt/claude-plugin-tao) |
+| `clickup` | [`joelpt/claude-plugin-clickup`](https://github.com/joelpt/claude-plugin-clickup) |
+| `wip` | [`joelpt/claude-plugin-wip`](https://github.com/joelpt/claude-plugin-wip) |
+| `the-plan` | [`joelpt/claude-plugin-the-plan`](https://github.com/joelpt/claude-plugin-the-plan) |
+| `tip-of-the-day` | [`joelpt/claude-plugin-tip-of-the-day`](https://github.com/joelpt/claude-plugin-tip-of-the-day) |
+| `plugin-dev` | [`joelpt/claude-plugin-plugin-dev`](https://github.com/joelpt/claude-plugin-plugin-dev) |
+| `deep-research` | [`joelpt/claude-plugin-deep-research`](https://github.com/joelpt/claude-plugin-deep-research) |
+| `commit-commands` | [`joelpt/claude-plugin-commit-commands`](https://github.com/joelpt/claude-plugin-commit-commands) |
+| `jack` | [`joelpt/iloom-inside`](https://github.com/joelpt/iloom-inside) (subdir `jack`) |
+| `statusline-usage-updater` | [`joelpt/claude-plugin-statusline-usage-updater`](https://github.com/joelpt/claude-plugin-statusline-usage-updater) |
 
-## Install (one-time per machine)
+## Install
+
+Requires an SSH key registered with your GitHub account (the `github` source clones over SSH)
+and read access to these private repos.
 
 ```bash
-claude plugin marketplace add joelpt/claude-plugins
-claude plugin install search-rag@joelpt-claude-plugins
-# repeat for whichever plugins you want
+claude plugin marketplace add joelpt/joelpt-claude-plugins
+claude plugin install <name>@joelpt-claude-plugins   # repeat per plugin
+# restart Claude Code
 ```
-
-This requires read access to the private GitHub repo. Use `gh auth login` first if you haven't.
 
 ## Update
 
@@ -29,33 +36,21 @@ This requires read access to the private GitHub repo. Use `gh auth login` first 
 claude plugin marketplace update joelpt-claude-plugins
 ```
 
-For automatic background refresh on session start, export `GITHUB_TOKEN` (or `GH_TOKEN`) with `repo` scope. Without it, updates are manual via the command above.
+Plugin changes ship from each plugin's own repo (bump its `plugin.json` `version` — the cache is
+version-keyed). This index only changes when a plugin is added or removed.
 
-## Layout
+## Migrated from a monorepo (2026-05-18)
 
-```text
-claude-plugins/
-├── .claude-plugin/
-│   └── marketplace.json         ← marketplace manifest (lists all plugins)
-├── plugins/
-│   ├── search-rag/              ← each plugin has its own .claude-plugin/plugin.json
-│   ├── tao/
-│   ├── clickup/
-│   ├── wip/
-│   ├── the-plan/
-│   └── tip-of-the-day/
-├── CLAUDE.md                    ← contributor guide for Claude
-└── README.md
+Previously a monorepo with plugins under `plugins/`. If you had the old marketplace installed,
+the source identity and repo name changed — re-add and reinstall:
+
+```bash
+claude plugin marketplace remove joelpt-claude-plugins
+claude plugin marketplace add joelpt/joelpt-claude-plugins
+claude plugin uninstall <name>@joelpt-claude-plugins && claude plugin install <name>@joelpt-claude-plugins
+# restart Claude Code
 ```
-
-## Adding a new plugin
-
-1. `mkdir plugins/<name> && mkdir plugins/<name>/.claude-plugin`
-2. Author `plugins/<name>/.claude-plugin/plugin.json` (name, version, description, author).
-3. Add `commands/`, `skills/`, `hooks/`, or `agents/` as the plugin needs. **No slash commands required** — a plugin can be hook-only or skill-only.
-4. Add an entry to `.claude-plugin/marketplace.json` under `plugins`.
-5. Commit, push, then on each consumer machine: `claude plugin marketplace update joelpt-claude-plugins && claude plugin install <name>@joelpt-claude-plugins`.
 
 ## License
 
-Private. Not for redistribution unless individual plugins say otherwise.
+Private. Each plugin repo carries its own license.

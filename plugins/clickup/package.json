@@ -1,9 +1,0 @@
-{
-  "name": "clickup-claude-code-plugin",
-  "version": "0.1.0",
-  "description": "Claude Code plugin for ClickUp project management integration",
-  "private": true,
-  "dependencies": {
-    "@taazkareem/clickup-mcp-server": "^0.13.1"
-  }
-}
