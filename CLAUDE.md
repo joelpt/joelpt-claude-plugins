@@ -24,7 +24,7 @@ GitHub: `https://github.com/joelpt/joelpt-claude-plugins` (private). Marketplace
 
 | Plugin | Repo | `source` |
 |---|---|---|
-| `jack` | `joelpt/iloom-inside` (plugin at `jack/`) | `{"source":"git-subdir","url":"https://github.com/joelpt/iloom-inside.git","path":"jack","ref":"main"}` |
+| `jack` | `joelpt/jack` (plugin at `jack/`) | `{"source":"git-subdir","url":"https://github.com/joelpt/jack.git","path":"jack","ref":"main"}` |
 
 `maestro-downloader` is **not** a Claude Code plugin and must **never** appear in this
 marketplace in any form. Its repo `joelpt/maestro-downloader` is unrelated to this index.
