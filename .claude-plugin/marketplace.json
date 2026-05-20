@@ -24,7 +24,7 @@
     {
       "name": "wip",
       "source": { "source": "github", "repo": "joelpt/claude-plugin-wip" },
-      "description": "Work-in-progress session handoff: auto-injects WIP.md on fresh start; captures task state on SessionEnd and PreCompact."
+      "description": "Session-rolling WIP recaps stored under ~/.claude/wip/. Haiku-synthesized capture on Stop / PreCompact / SessionEnd; auto-injects prior session(s) on SessionStart."
     },
     {
       "name": "the-plan",
