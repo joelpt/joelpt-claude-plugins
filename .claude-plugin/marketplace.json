@@ -4,61 +4,96 @@
     "name": "Joel Thornton",
     "email": "joelpt@gmail.com"
   },
-  "description": "Joel's private Claude Code plugin marketplace. Index only — each plugin lives in its own joelpt/claude-plugin-<name> repo.",
+  "description": "Joel's private Claude Code plugin marketplace. Index only \u2014 each plugin lives in its own joelpt/claude-plugin-<name> repo.",
   "plugins": [
     {
       "name": "search-rag",
-      "source": { "source": "github", "repo": "joelpt/claude-plugin-search-rag" },
+      "source": {
+        "source": "github",
+        "repo": "joelpt/claude-plugin-search-rag"
+      },
       "description": "Local-first LanceDB RAG over project documentation. Indexes files matched by .search-rag.json globs and serves semantic search to Claude."
     },
     {
       "name": "tao",
-      "source": { "source": "github", "repo": "joelpt/claude-plugin-tao" },
-      "description": "Advanced multi-model AI reasoning workflows for complex decision analysis, debugging, code review, and technical architecture."
+      "source": {
+        "source": "github",
+        "repo": "joelpt/claude-plugin-tao"
+      },
+      "description": "Routes reasoning tasks to optimal Claude tier; uses Grok 4.3, Codex CLI, and Ollama in parallel for consensus and adversarial challenge modes."
     },
     {
       "name": "clickup",
-      "source": { "source": "github", "repo": "joelpt/claude-plugin-clickup" },
+      "source": {
+        "source": "github",
+        "repo": "joelpt/claude-plugin-clickup"
+      },
       "description": "ClickUp project management integration via MCP. Create and manage tasks, search projects, update assignments, track progress."
     },
     {
       "name": "wip",
-      "source": { "source": "github", "repo": "joelpt/claude-plugin-wip" },
+      "source": {
+        "source": "github",
+        "repo": "joelpt/claude-plugin-wip"
+      },
       "description": "Session-rolling WIP recaps stored under ~/.claude/wip/. Haiku-synthesized capture on Stop / PreCompact / SessionEnd; auto-injects prior session(s) on SessionStart."
     },
     {
       "name": "the-plan",
-      "source": { "source": "github", "repo": "joelpt/claude-plugin-the-plan" },
-      "description": "Long-horizon plan-developing infrastructure. Cron-driven Claude Code agent that thinks, refines, and queues — but does not act without approval."
+      "source": {
+        "source": "github",
+        "repo": "joelpt/claude-plugin-the-plan"
+      },
+      "description": "Long-horizon plan-developing infrastructure. Cron-driven Claude Code agent that thinks, refines, and queues \u2014 but does not act without approval."
     },
     {
       "name": "tip-of-the-day",
-      "source": { "source": "github", "repo": "joelpt/claude-plugin-tip-of-the-day" },
+      "source": {
+        "source": "github",
+        "repo": "joelpt/claude-plugin-tip-of-the-day"
+      },
       "description": "Claude Code intelligence briefing - delivers curated tips about features, plugins, skills, and best practices at session start."
     },
     {
       "name": "plugin-dev",
-      "source": { "source": "github", "repo": "joelpt/claude-plugin-plugin-dev" },
+      "source": {
+        "source": "github",
+        "repo": "joelpt/claude-plugin-plugin-dev"
+      },
       "description": "Claude Code plugin development skills: hook, command, skill, agent, MCP, settings, structure. Slim wrappers over pinned upstream from anthropics/claude-plugins-public."
     },
     {
       "name": "deep-research",
-      "source": { "source": "github", "repo": "joelpt/claude-plugin-deep-research" },
+      "source": {
+        "source": "github",
+        "repo": "joelpt/claude-plugin-deep-research"
+      },
       "description": "13-agent academic research pipeline: literature reviews, systematic reviews, meta-analysis, fact-checking, and Socratic-guided research exploration. Thin wrapper over Imbad0202/academic-research-skills."
     },
     {
       "name": "commit-commands",
-      "source": { "source": "github", "repo": "joelpt/claude-plugin-commit-commands" },
+      "source": {
+        "source": "github",
+        "repo": "joelpt/claude-plugin-commit-commands"
+      },
       "description": "Atomic git commits with code review + simplify pre-flight, enforcing project git rules. Replaces claude-plugins-official commit-commands."
     },
     {
       "name": "jack",
-      "source": { "source": "git-subdir", "url": "https://github.com/joelpt/jack.git", "path": "jack", "ref": "main" },
-      "description": "Jack (Jacquard) — autonomous development orchestration plugin: pipeline, swarm, yolo modes; multi-agent reviewers; loom + flight recorder + blackboard. Sourced as a git-subdir of joelpt/jack."
+      "source": {
+        "source": "git-subdir",
+        "url": "https://github.com/joelpt/jack.git",
+        "path": "jack",
+        "ref": "main"
+      },
+      "description": "Jack (Jacquard) \u2014 autonomous development orchestration plugin: pipeline, swarm, yolo modes; multi-agent reviewers; loom + flight recorder + blackboard. Sourced as a git-subdir of joelpt/jack."
     },
     {
       "name": "statusline-usage-updater",
-      "source": { "source": "github", "repo": "joelpt/claude-plugin-statusline-usage-updater" },
+      "source": {
+        "source": "github",
+        "repo": "joelpt/claude-plugin-statusline-usage-updater"
+      },
       "description": "Nightly auto-calibration of the statusline %w (weekly-quota burn) coefficient by comparing realised 7-day rate-limit utilisation against realised session token volume. Also drives a peak-hour warning glyph."
     }
   ]
