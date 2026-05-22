@@ -95,6 +95,14 @@
         "repo": "joelpt/claude-plugin-statusline-usage-updater"
       },
       "description": "Nightly auto-calibration of the statusline %w (weekly-quota burn) coefficient by comparing realised 7-day rate-limit utilisation against realised session token volume. Also drives a peak-hour warning glyph."
+    },
+    {
+      "name": "yolo",
+      "source": {
+        "source": "github",
+        "repo": "joelpt/claude-plugin-yolo"
+      },
+      "description": "Autonomous work mode \u2014 /yolo works all pending items (GitHub issues, TODO.md, PLAN.md) sequentially without pausing for decisions, committing as it goes. Self-gating Stop hook keeps the run going until goal state is reached."
     }
   ]
 }
