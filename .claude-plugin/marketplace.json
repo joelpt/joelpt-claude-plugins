@@ -20,7 +20,7 @@
         "source": "github",
         "repo": "joelpt/claude-plugin-tao"
       },
-      "description": "Routes reasoning tasks to optimal Claude tier; uses Grok 4.3, Codex CLI, and Ollama in parallel for consensus and adversarial challenge modes."
+      "description": "Routes reasoning tasks to optimal Claude tier; uses Grok 4.3, OpenAI/GPT, Codex CLI, and Ollama in parallel for consensus and adversarial challenge modes."
     },
     {
       "name": "clickup",
