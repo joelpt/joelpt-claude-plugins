@@ -102,7 +102,7 @@
         "source": "github",
         "repo": "joelpt/claude-plugin-yolo"
       },
-      "description": "Autonomous work mode \u2014 /yolo works all pending items (GitHub issues, TODO.md, PLAN.md) sequentially without pausing for decisions, committing as it goes. Self-gating Stop hook keeps the run going until goal state is reached. Opt-in SessionEnd janitor cleans merged-and-clean .claude/worktrees/ branches older than 24h."
+      "description": "Autonomous work mode \u2014 /yolo works all pending items (GitHub issues, TODO.md, PLAN.md) sequentially without pausing for decisions, committing as it goes. Tracks tasks in ~/.claude/yolo-progress.json with a live statusline Y:c/r indicator. Self-gating Stop hook, durable task history, and opt-in worktree janitor."
     }
   ]
 }
