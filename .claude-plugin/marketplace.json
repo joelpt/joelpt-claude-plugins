@@ -79,16 +79,6 @@
       "description": "Atomic git commits with code review + simplify pre-flight, enforcing project git rules. Replaces claude-plugins-official commit-commands."
     },
     {
-      "name": "jack",
-      "source": {
-        "source": "git-subdir",
-        "url": "https://github.com/joelpt/jack.git",
-        "path": "jack",
-        "ref": "main"
-      },
-      "description": "Jack (Jacquard) \u2014 autonomous development orchestration plugin: pipeline, swarm, yolo modes; multi-agent reviewers; loom + flight recorder + blackboard. Sourced as a git-subdir of joelpt/jack."
-    },
-    {
       "name": "statusline-usage-updater",
       "source": {
         "source": "github",
