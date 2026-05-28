@@ -28,7 +28,7 @@
         "source": "github",
         "repo": "joelpt/claude-plugin-clickup"
       },
-      "description": "ClickUp project management integration via MCP. Create and manage tasks, search projects, update assignments, track progress."
+      "description": "ClickUp project management integration. Create and manage tasks, search projects, update assignments, track progress. Calls ClickUp REST API directly — no MCP server or license key required."
     },
     {
       "name": "wip",
