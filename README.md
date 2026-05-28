@@ -16,7 +16,7 @@ This repo holds only `marketplace.json` — every plugin lives in its own privat
 | `plugin-dev` | [`joelpt/claude-plugin-plugin-dev`](https://github.com/joelpt/claude-plugin-plugin-dev) |
 | `deep-research` | [`joelpt/claude-plugin-deep-research`](https://github.com/joelpt/claude-plugin-deep-research) |
 | `commit-commands` | [`joelpt/claude-plugin-commit-commands`](https://github.com/joelpt/claude-plugin-commit-commands) |
-| `jack` | [`joelpt/iloom-inside`](https://github.com/joelpt/iloom-inside) (subdir `jack`) |
+| `jack` | [`joelpt/jack`](https://github.com/joelpt/jack) (subdir `jack`) |
 | `statusline-usage-updater` | [`joelpt/claude-plugin-statusline-usage-updater`](https://github.com/joelpt/claude-plugin-statusline-usage-updater) |
 
 ## Install
