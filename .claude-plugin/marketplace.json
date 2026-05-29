@@ -101,6 +101,14 @@
         "repo": "joelpt/claude-plugin-worktrees"
       },
       "description": "Surfaces a repo's mergeable git worktrees (those with no live claude session) at session start and lands chosen ones into the default branch by rebase + fast-forward via a deterministic engine, with confidence-gated conflict handling, post-land tests, and exact-state rollback. Repo-scoped \u2014 never cross-repo."
+    },
+    {
+      "name": "semgrep-shared",
+      "source": {
+        "source": "github",
+        "repo": "joelpt/claude-plugin-semgrep-shared"
+      },
+      "description": "Shares one semgrep MCP HTTP daemon across every Claude Code session (auto-spawned on SessionStart, reaped when the last claude exits), replacing the per-session stdio MCP that loads semgrep-core-pro (~1.9 GB) N times. Requires a one-time semgrep.dev OAuth login."
     }
   ]
 }
