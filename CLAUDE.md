@@ -41,7 +41,7 @@ HTTPS-only auth will fail with `Permission denied (publickey)`.
 - `claude plugin install` **recurses submodules** automatically — the wrapper plugins rely on
   this (see below).
 
-## Wrapper plugins (`plugin-dev`, `deep-research`)
+## Wrapper plugins (`plugin-dev`, `academic-research`)
 
 Thin wrappers over a pinned third-party upstream, vendored as a git **submodule** at
 `upstream/` in their own repo. Wrapper bodies reference it as

@@ -14,7 +14,7 @@ This repo holds only `marketplace.json` — every plugin lives in its own privat
 | `the-plan` | [`joelpt/claude-plugin-the-plan`](https://github.com/joelpt/claude-plugin-the-plan) |
 | `tip-of-the-day` | [`joelpt/claude-plugin-tip-of-the-day`](https://github.com/joelpt/claude-plugin-tip-of-the-day) |
 | `plugin-dev` | [`joelpt/claude-plugin-plugin-dev`](https://github.com/joelpt/claude-plugin-plugin-dev) |
-| `deep-research` | [`joelpt/claude-plugin-deep-research`](https://github.com/joelpt/claude-plugin-deep-research) |
+| `academic-research` | [`joelpt/claude-plugin-academic-research`](https://github.com/joelpt/claude-plugin-academic-research) |
 | `commit-commands` | [`joelpt/claude-plugin-commit-commands`](https://github.com/joelpt/claude-plugin-commit-commands) |
 | `jack` | [`joelpt/jack`](https://github.com/joelpt/jack) (subdir `jack`) |
 | `statusline-usage-updater` | [`joelpt/claude-plugin-statusline-usage-updater`](https://github.com/joelpt/claude-plugin-statusline-usage-updater) |
