@@ -28,7 +28,7 @@
         "source": "github",
         "repo": "joelpt/claude-plugin-clickup"
       },
-      "description": "ClickUp project management via the clickup MCP server: create/search/update tasks, navigate workspaces, and manage comments through individually gateable mcp__clickup__* tools. Direct ClickUp REST API v2 — no license key."
+      "description": "ClickUp project management via the clickup MCP server: create/search/update tasks and subtasks, navigate workspaces, manage comments, and read/set custom fields through individually gateable mcp__clickup__* tools. Direct ClickUp REST API v2 — no license key."
     },
     {
       "name": "wip",
