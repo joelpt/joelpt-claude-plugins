@@ -44,7 +44,7 @@
         "source": "github",
         "repo": "joelpt/claude-plugin-the-plan"
       },
-      "description": "Long-horizon plan-developing infrastructure. Cron-driven Claude Code agent that thinks, refines, and queues \u2014 but does not act without approval."
+      "description": "Long-horizon plan-developing infrastructure with local web UI. Claude tends, refines, and queues proposals \u2014 but does not act without approval."
     },
     {
       "name": "tip-of-the-day",
