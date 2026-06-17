@@ -76,7 +76,7 @@
         "source": "github",
         "repo": "joelpt/claude-plugin-commit-commands"
       },
-      "description": "Atomic git commits with deterministic, tiered code review pre-flight, enforcing project git rules. Replaces claude-plugins-official commit-commands."
+      "description": "Atomic git commits with deterministic, tiered code review pre-flight (feature-dev:code-reviewer + /code-review, plus an optional parallel Codex/GPT-5 second opinion when the codex plugin is installed), enforcing project git rules. Replaces claude-plugins-official commit-commands."
     },
     {
       "name": "statusline-usage-updater",
