@@ -84,7 +84,7 @@
         "source": "github",
         "repo": "joelpt/claude-plugin-statusline-usage-updater"
       },
-      "description": "Nightly auto-calibration of the statusline %w (weekly-quota burn) coefficient by comparing realised 7-day rate-limit utilisation against realised cost-weighted session usage (output 5x input, cache-read 0.1x, 1h-write 2x). The session helper also reports non-idle Claude run-time across the session and its subagents/workflows. Also drives a peak-hour warning glyph."
+      "description": "Nightly auto-calibration of the statusline %w (weekly-quota burn) coefficient by comparing realised 7-day rate-limit utilisation against realised cost-weighted session usage (output 5x input, cache-read 0.1x, 1h-write 2x). The session helper also reports non-idle Claude run-time and total raw token usage across the session and its subagents/workflows. Also drives a peak-hour warning glyph."
     },
     {
       "name": "yolo",
